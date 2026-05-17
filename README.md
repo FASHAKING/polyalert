@@ -21,13 +21,15 @@ sh -c 'SUDO=$(command -v sudo); if [ -n "$PREFIX" ] && command -v pkg >/dev/null
 
 **Windows PowerShell:**
 ```powershell
-$py = Get-Command python -ErrorAction SilentlyContinue; if (-not $py -or $py.Source -like "*WindowsApps*") { winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements }; if (-not (Get-Command git -ErrorAction SilentlyContinue)) { winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements }; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python run.py
+$py = (Get-Command python -All -EA SilentlyContinue | Where-Object { $_.Source -notlike "*WindowsApps*" } | Select-Object -First 1).Source; if (-not $py) { winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements | Out-Null; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); $py = (Get-Command python -All -EA SilentlyContinue | Where-Object { $_.Source -notlike "*WindowsApps*" } | Select-Object -First 1).Source; if (-not $py) { $py = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" } }; if (-not (Get-Command git -EA SilentlyContinue)) { winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements | Out-Null; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") }; git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; & $py -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python run.py
 ```
 
-> If `python -m venv` prints "Python was not found; run without arguments
-> to install from the Microsoft Store", winget's PATH entry hasn't loaded
-> into the current session. Close PowerShell, open a fresh window,
-> `cd polyalert`, and re-run from `python -m venv .venv` onward.
+> Windows ships a "python.exe" stub in `WindowsApps` that opens the
+> Microsoft Store, and it usually wins over a real Python in PATH. The
+> one-liner skips it by looking up the real Python's full path
+> (`Get-Command python -All` filtered to exclude `WindowsApps`) and
+> invoking the venv bootstrap with `& $py`. Once the venv is activated,
+> `python` resolves to the venv copy and the stub is out of the way.
 
 The wizard walks you through four steps:
 
