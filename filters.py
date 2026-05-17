@@ -13,6 +13,7 @@ category to :data:`CATEGORIES`). No other file should need to change.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -21,6 +22,7 @@ class Category:
     slug: str
     label: str
     parent_tag: str | None  # Gamma tag slug to scope queries; None = all events
+    emoji: str = ""          # fallback emoji when a filter has none
 
 
 @dataclass(frozen=True)
@@ -30,51 +32,54 @@ class Filter:
     label: str                      # human label
     tag_slugs: frozenset[str]       # Polymarket tag slugs that match
     keywords: tuple[str, ...] = ()  # title-substring fallback (lowercase)
+    emoji: str = ""                 # decoration prefix
 
 
 CATEGORIES: dict[str, Category] = {
-    "sports": Category("sports", "Sports", "sports"),
-    "crypto": Category("crypto", "Crypto", "crypto"),
-    "politics": Category("politics", "Politics", "politics"),
-    "entertainment": Category("entertainment", "Entertainment", "entertainment"),
+    "sports": Category("sports", "Sports", "sports", "🏟"),
+    "crypto": Category("crypto", "Crypto", "crypto", "💰"),
+    "politics": Category("politics", "Politics", "politics", "🗳"),
+    "entertainment": Category("entertainment", "Entertainment", "entertainment", "🎬"),
 }
 
 
-def _f(slug: str, category: str, label: str, tags: set[str], keywords: tuple[str, ...] = ()) -> Filter:
-    return Filter(slug, category, label, frozenset(tags), keywords)
+def _f(slug: str, category: str, label: str, tags: set[str], keywords: tuple[str, ...] = (), emoji: str = "") -> Filter:
+    return Filter(slug, category, label, frozenset(tags), keywords, emoji)
 
 
 REGISTRY: dict[str, Filter] = {
     # ---- Sports ----
-    "nfl": _f("nfl", "sports", "NFL", {"nfl"}, ("nfl",)),
-    "nba": _f("nba", "sports", "NBA", {"nba"}, ("nba",)),
-    "mlb": _f("mlb", "sports", "MLB", {"mlb"}, ("mlb",)),
-    "nhl": _f("nhl", "sports", "NHL", {"nhl"}, ("nhl",)),
-    "soccer": _f("soccer", "sports", "Soccer", {"soccer", "football"}, ("soccer",)),
-    "epl": _f("epl", "sports", "Premier League", {"epl", "premier-league"}, ("premier league", "epl")),
+    "nfl": _f("nfl", "sports", "NFL", {"nfl"}, ("nfl",), "🏈"),
+    "nba": _f("nba", "sports", "NBA", {"nba"}, ("nba",), "🏀"),
+    "mlb": _f("mlb", "sports", "MLB", {"mlb"}, ("mlb",), "⚾"),
+    "nhl": _f("nhl", "sports", "NHL", {"nhl"}, ("nhl",), "🏒"),
+    "soccer": _f("soccer", "sports", "Soccer", {"soccer", "football"}, ("soccer",), "⚽"),
+    "epl": _f("epl", "sports", "Premier League", {"epl", "premier-league"}, ("premier league",), "⚽"),
     "champions-league": _f(
         "champions-league", "sports", "Champions League",
         {"champions-league", "uefa-champions-league"},
-        ("champions league", "ucl"),
+        ("champions league",),  # dropped 'ucl' — too short, false-matched 'nuclear'
+        "🏆",
     ),
-    "mls": _f("mls", "sports", "MLS", {"mls"}, ("mls",)),
-    "ufc": _f("ufc", "sports", "UFC / MMA", {"ufc", "mma"}, ("ufc", "mma")),
-    "tennis": _f("tennis", "sports", "Tennis", {"tennis"}, ("tennis", "atp", "wta")),
-    "f1": _f("f1", "sports", "Formula 1", {"f1", "formula-1", "formula-one"}, ("f1", "formula 1", "grand prix")),
+    "mls": _f("mls", "sports", "MLS", {"mls"}, ("mls",), "⚽"),
+    "ufc": _f("ufc", "sports", "UFC / MMA", {"ufc", "mma"}, ("ufc", "mma"), "🥊"),
+    "tennis": _f("tennis", "sports", "Tennis", {"tennis"}, ("tennis",), "🎾"),
+    "f1": _f("f1", "sports", "Formula 1", {"f1", "formula-1", "formula-one"}, ("formula 1", "grand prix"), "🏎"),
 
     # ---- Crypto (examples; off by default) ----
-    "bitcoin": _f("bitcoin", "crypto", "Bitcoin", {"bitcoin", "btc"}, ("bitcoin", "btc")),
-    "ethereum": _f("ethereum", "crypto", "Ethereum", {"ethereum", "eth"}, ("ethereum",)),
+    "bitcoin": _f("bitcoin", "crypto", "Bitcoin", {"bitcoin", "btc"}, ("bitcoin",), "₿"),
+    "ethereum": _f("ethereum", "crypto", "Ethereum", {"ethereum", "eth"}, ("ethereum",), "Ξ"),
 
     # ---- Politics (examples; off by default) ----
     "us-election": _f(
         "us-election", "politics", "US Elections",
         {"us-election", "elections-us", "2028-election"},
         ("election", "president"),
+        "🗳",
     ),
 
     # ---- Entertainment (examples; off by default) ----
-    "oscars": _f("oscars", "entertainment", "Oscars / Awards", {"oscars", "academy-awards"}, ("oscar", "academy award")),
+    "oscars": _f("oscars", "entertainment", "Oscars / Awards", {"oscars", "academy-awards"}, ("oscar", "academy award"), "🎬"),
 }
 
 
@@ -101,6 +106,14 @@ def group_active_by_category(active_slugs: list[str]) -> dict[str, list[Filter]]
     return out
 
 
+def _keyword_in_title(keyword: str, title: str) -> bool:
+    """Match keyword against title. Single-word keywords use word boundaries
+    (so 'ucl' doesn't match 'nuclear'); multi-word phrases use substring."""
+    if " " in keyword:
+        return keyword in title
+    return re.search(r"\b" + re.escape(keyword) + r"\b", title) is not None
+
+
 def match_event(event: dict, candidates: list[Filter]) -> Filter | None:
     """Return the first candidate filter that matches the event, or None."""
     tag_slugs = {(t.get("slug") or "").lower() for t in (event.get("tags") or []) if t}
@@ -108,7 +121,7 @@ def match_event(event: dict, candidates: list[Filter]) -> Filter | None:
     for f in candidates:
         if f.tag_slugs & tag_slugs:
             return f
-        if any(kw in title for kw in f.keywords):
+        if any(_keyword_in_title(kw, title) for kw in f.keywords):
             return f
     return None
 
@@ -121,3 +134,17 @@ def label_for(slug: str) -> str:
 def category_label(slug: str) -> str:
     c = CATEGORIES.get(slug)
     return c.label if c else slug.title()
+
+
+def emoji_for(slug: str | None) -> str:
+    """Return the filter's emoji, falling back to its category's emoji."""
+    if not slug:
+        return ""
+    f = REGISTRY.get(slug)
+    if f and f.emoji:
+        return f.emoji
+    if f:
+        c = CATEGORIES.get(f.category)
+        if c and c.emoji:
+            return c.emoji
+    return ""
