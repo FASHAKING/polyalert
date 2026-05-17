@@ -24,19 +24,30 @@ from Telegram with no restart.
 
 ## One-liner quick start
 
-`run.py` is a cross-platform interactive wizard. The same command
-works in bash, zsh, Termux, and PowerShell:
+One self-detecting command per shell family — it figures out the OS /
+package manager, installs Python + git + pip deps, clones the repo, and
+launches the setup wizard.
 
-```
-git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python run.py
-```
-
-**Termux only** — install Python + git first:
-```
-pkg install -y python git
+**Termux, Linux, macOS, WSL, git-bash** (any POSIX shell):
+```sh
+sh -c 'SUDO=$(command -v sudo); if [ -n "$PREFIX" ] && command -v pkg >/dev/null 2>&1; then pkg update -y && pkg install -y python git; elif command -v apt-get >/dev/null 2>&1; then $SUDO apt-get update && $SUDO apt-get install -y python3 python3-pip python3-venv git; elif command -v dnf >/dev/null 2>&1; then $SUDO dnf install -y python3 python3-pip git; elif command -v pacman >/dev/null 2>&1; then $SUDO pacman -Sy --noconfirm python python-pip git; elif command -v apk >/dev/null 2>&1; then $SUDO apk add --no-cache python3 py3-pip git; elif command -v brew >/dev/null 2>&1; then brew install python git; else echo "unsupported package manager — install python3 and git manually" >&2; exit 1; fi && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && PY=$(command -v python3 || command -v python) && $PY -m venv .venv 2>/dev/null && . .venv/bin/activate 2>/dev/null; $PY -m pip install -r requirements.txt && $PY run.py'
 ```
 
-The wizard walks you through:
+**Windows PowerShell:**
+```powershell
+$py = (Get-Command python -All -EA SilentlyContinue | Where-Object { $_.Source -notlike "*WindowsApps*" } | Select-Object -First 1).Source; if (-not $py) { winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements | Out-Null; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); $py = (Get-Command python -All -EA SilentlyContinue | Where-Object { $_.Source -notlike "*WindowsApps*" } | Select-Object -First 1).Source; if (-not $py) { $py = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" } }; if (-not (Get-Command git -EA SilentlyContinue)) { winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements | Out-Null; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") }; git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; & $py -m venv .venv; & .\.venv\Scripts\python.exe -m pip install -r requirements.txt; & .\.venv\Scripts\python.exe run.py
+```
+
+> The one-liner avoids two Windows-specific traps: (1) the
+> `WindowsApps\python.exe` Microsoft Store stub that wins over real
+> Python in PATH — sidestepped by resolving the real interpreter's full
+> path via `Get-Command -All` filtered to exclude `WindowsApps`; and
+> (2) PowerShell's default `Restricted` ExecutionPolicy that blocks
+> `Activate.ps1` — sidestepped by skipping activation entirely and
+> invoking `.\.venv\Scripts\python.exe` directly for both pip install
+> and run.py.
+
+The wizard walks you through four steps:
 
 1. **Token** — paste your `@BotFather` token (hidden input). The
    wizard calls Telegram's `getMe` to verify it before continuing.
