@@ -231,27 +231,21 @@ def poll_polymarket(
     tg: TelegramClient,
     http: requests.Session,
     log: logging.Logger,
-    *,
-    silent_bootstrap: bool,
-) -> bool:
-    """Fetch and notify. Returns True if bootstrap silenced this round."""
+) -> None:
     leagues = store.get_leagues()
     if not leagues:
         log.info("No leagues active — skipping poll. Use /add via Telegram.")
-        return False
+        return
 
     try:
         events = fetch_new_sports_events(leagues, session=http)
     except Exception as e:
         log.exception("Polymarket fetch failed: %s", e)
-        return False
+        return
 
     log.info("Fetched %d matching event(s).", len(events))
     for ev in events:
         if store.has(ev.id):
-            continue
-        if silent_bootstrap:
-            store.add(ev.id, ev.league, ev.title)
             continue
         msg = format_event(ev)
         if tg.send_message(msg):
@@ -259,7 +253,6 @@ def poll_polymarket(
             log.info("Notified: [%s] %s", ev.league, ev.title)
         else:
             log.warning("Send failed, will retry next cycle: %s", ev.title)
-    return silent_bootstrap
 
 
 # ---------- entry ----------
@@ -329,9 +322,6 @@ def run() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # On first run (no seen events yet), silently mark current matches so the
-    # user doesn't get a wall of notifications for the existing backlog.
-    first_run = store.count() == 0
     last_poll = 0.0
 
     while not stop["flag"]:
@@ -341,10 +331,7 @@ def run() -> None:
         # 2) Poll Polymarket on the configured interval.
         now = time.time()
         if now - last_poll >= interval:
-            silenced = poll_polymarket(store, tg, http, log, silent_bootstrap=first_run)
-            if silenced:
-                log.info("Bootstrap complete: %d event(s) marked as seen.", store.count())
-                first_run = False
+            poll_polymarket(store, tg, http, log)
             last_poll = now
 
         # Short sleep so commands feel responsive.
