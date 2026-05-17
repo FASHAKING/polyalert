@@ -10,10 +10,8 @@ re-spam old listings.
 
 ## One-liner quick start
 
-`run.py` is a cross-platform bootstrap that detects your environment
-(Termux / Linux / macOS / Windows), installs dependencies, prompts for your
-Telegram token and chat id on first run, then starts the bot. The same
-command works in bash, zsh, Termux, and PowerShell:
+`run.py` is a cross-platform interactive wizard. The same command works
+in bash, zsh, Termux, and PowerShell:
 
 ```
 git clone https://github.com/FASHAKING/poltalert.git; cd poltalert; python run.py
@@ -24,21 +22,24 @@ git clone https://github.com/FASHAKING/poltalert.git; cd poltalert; python run.p
 pkg install -y python git
 ```
 
-On first launch `run.py` will:
+The wizard walks you through four steps:
 
-1. Detect Termux / Linux / macOS / Windows and pick the right `pip` flags
-   (auto-retries with `--break-system-packages --user` on PEP 668 systems).
-2. Install `requests` and `python-dotenv`.
-3. Prompt for your `TELEGRAM_BOT_TOKEN` (hidden input) and
-   `TELEGRAM_CHAT_ID`, save them to `.env` with `0600` perms.
-4. Launch the polling loop.
+1. **Token** — paste the token from `@BotFather` (hidden input). The
+   wizard calls Telegram's `getMe` to verify it before continuing.
+2. **Chat ID** — auto-detects from your recent messages to the bot. Send
+   the bot any message first, then pick from the list. (Manual entry
+   also accepted.)
+3. **Leagues** — interactive picker. NFL, NBA, MLB, Soccer, EPL, UCL.
+4. **Poll interval** — seconds between Polymarket checks (default 300).
 
-Subsequent runs are just `python run.py` from inside the repo (or
-`python bot.py` directly if you'd rather skip the dep check).
+Answers are saved to `.env` (mode `0600`), then the wizard offers to
+send a test message before starting the polling loop.
 
-A `seen.db` file is created in the working directory after the first
-successful poll — keep that file around so the bot doesn't re-notify on
-restart. Stop with Ctrl+C.
+Re-run the wizard at any time with `python run.py --reconfig`. Otherwise
+subsequent launches reuse the saved `.env` and go straight to polling.
+
+A `seen.db` file is created after the first poll — keep it around so
+restarts don't re-notify. Stop with Ctrl+C.
 
 ## Setup
 
