@@ -7,6 +7,7 @@ import os
 import signal
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
 import requests
 from dotenv import load_dotenv
@@ -29,8 +30,11 @@ COMMANDS = [
     ("remove", "Disable a filter: /remove nfl"),
     ("search", "Search all markets: /search messi"),
     ("markets", "List markets in a filter: /markets nba chicago bulls"),
+    ("recent", "Show notified events, grouped by day: /recent [filter] [day] [count]"),
     ("help", "Show available commands"),
 ]
+
+POLYMARKET_EVENT_URL = "https://polymarket.com/event"
 
 TICK_SECONDS = 2
 
@@ -102,8 +106,165 @@ HELP_TEXT = (
     "/search &lt;query&gt; — search live markets across all categories (e.g. <code>/search messi</code>)\n"
     "/markets &lt;filter&gt; [query] — list live markets in a filter "
     "(e.g. <code>/markets nba chicago bulls</code>)\n"
+    "/recent [filter] [day] [count] — events the bot has already notified, grouped by day. "
+    "Day can be <code>today</code>, <code>yesterday</code>, <code>Nd</code> (last N days), or <code>YYYY-MM-DD</code>. "
+    "Examples: <code>/recent</code>, <code>/recent today</code>, <code>/recent nfl 7d</code>\n"
     "/help — this message"
 )
+
+
+# ---------- /recent helpers ----------
+
+def _parse_day_arg(token: str) -> tuple[str, str] | None:
+    """Recognise day-spec tokens. Return (kind, YYYY-MM-DD) where kind is
+    'on' (single day) or 'since' (inclusive lower bound). None if not a
+    day spec."""
+    today = datetime.now().date()
+    if token == "today":
+        return ("on", today.isoformat())
+    if token == "yesterday":
+        return ("on", (today - timedelta(days=1)).isoformat())
+    if len(token) > 1 and token.endswith("d") and token[:-1].isdigit():
+        n = int(token[:-1])
+        if n >= 1:
+            return ("since", (today - timedelta(days=n - 1)).isoformat())
+    if len(token) == 10 and token[4] == "-" and token[7] == "-":
+        try:
+            datetime.strptime(token, "%Y-%m-%d")
+            return ("on", token)
+        except ValueError:
+            pass
+    return None
+
+
+def _day_label(day_iso: str) -> str:
+    """Human label for a YYYY-MM-DD: 'Today', 'Yesterday', or 'Mon 15'."""
+    today = datetime.now().date()
+    if day_iso == today.isoformat():
+        return "Today"
+    if day_iso == (today - timedelta(days=1)).isoformat():
+        return "Yesterday"
+    try:
+        dt = datetime.strptime(day_iso, "%Y-%m-%d")
+        return f"{dt.strftime('%b')} {dt.day}"  # %-d isn't portable on Windows
+    except ValueError:
+        return day_iso
+
+
+def _row_local_parts(first_seen: str) -> tuple[str, str]:
+    """Convert a seen_events.first_seen UTC string -> (local YYYY-MM-DD, HH:MM)."""
+    if not isinstance(first_seen, str):
+        return ("?", "")
+    try:
+        # SQLite CURRENT_TIMESTAMP yields "YYYY-MM-DD HH:MM:SS" in UTC.
+        dt_utc = datetime.strptime(first_seen.split(".")[0], "%Y-%m-%d %H:%M:%S")
+        local = dt_utc.replace(tzinfo=timezone.utc).astimezone()
+        return (local.date().isoformat(), local.strftime("%H:%M"))
+    except (ValueError, AttributeError):
+        return (first_seen[:10], first_seen[11:16] if len(first_seen) > 16 else "")
+
+
+RECENT_USAGE = (
+    "Usage: <code>/recent [filter] [day] [count]</code>\n"
+    "Args are order-insensitive. Day can be:\n"
+    "  <code>today</code> | <code>yesterday</code> | <code>Nd</code> (last N days) | <code>YYYY-MM-DD</code>\n"
+    "Examples:\n"
+    "  <code>/recent</code> — last 10, grouped by day\n"
+    "  <code>/recent today</code> — only today\n"
+    "  <code>/recent nfl yesterday</code>\n"
+    "  <code>/recent 7d 50</code> — last 50 from the last 7 days\n"
+    "  <code>/recent nba 2026-05-15</code>"
+)
+
+
+def _handle_recent(args: list[str], store: SeenStore) -> str:
+    filter_slug: str | None = None
+    limit = 10
+    on_date: str | None = None
+    since_date: str | None = None
+
+    for raw in args:
+        a = raw.lower().lstrip("/")
+        if a.isdigit():
+            limit = max(1, min(int(a), 50))
+            continue
+        if a in flt.REGISTRY:
+            filter_slug = a
+            continue
+        parsed = _parse_day_arg(a)
+        if parsed:
+            if on_date or since_date:
+                return f"Multiple day specs given. {RECENT_USAGE}"
+            kind, value = parsed
+            if kind == "on":
+                on_date = value
+            else:
+                since_date = value
+            continue
+        return f"Unknown argument: <code>{html.escape(a)}</code>\n{RECENT_USAGE}"
+
+    rows = store.recent(
+        limit=limit, filter_slug=filter_slug,
+        on_date=on_date, since_date=since_date,
+    )
+
+    # Header / empty messages
+    scope_bits: list[str] = []
+    if filter_slug:
+        scope_bits.append(html.escape(flt.label_for(filter_slug)))
+    if on_date:
+        scope_bits.append(f"on {_day_label(on_date)}")
+    elif since_date:
+        scope_bits.append(f"since {_day_label(since_date)}")
+    scope = (" — " + " ".join(scope_bits)) if scope_bits else ""
+
+    if not rows:
+        return (
+            f"No notified events{scope}.\n"
+            "The list populates as new markets get listed."
+        )
+
+    header = f"<b>Recent notifications</b>{scope} ({len(rows)} shown)"
+
+    # When the query is scoped to a single day, render flat. Otherwise group.
+    if on_date:
+        lines = [header, ""]
+        for i, (_id, fs, title, slug, first_seen) in enumerate(rows, 1):
+            _, time_str = _row_local_parts(first_seen)
+            label_prefix = f"[{flt.label_for(fs)}] " if (not filter_slug and fs) else ""
+            entry = f"{i}. {label_prefix}<b>{html.escape(title)}</b>"
+            if time_str:
+                entry += f"\n   <i>{time_str}</i>"
+            if slug:
+                entry += f"\n   {POLYMARKET_EVENT_URL}/{html.escape(slug)}"
+            lines.append(entry)
+        return "\n".join(lines)
+
+    # Grouped by day (rows are already newest-first)
+    groups: dict[str, list[tuple]] = {}
+    order: list[str] = []
+    for row in rows:
+        day_iso, time_str = _row_local_parts(row[4])
+        if day_iso not in groups:
+            order.append(day_iso)
+            groups[day_iso] = []
+        groups[day_iso].append((row, time_str))
+
+    lines = [header]
+    counter = 0
+    for day_iso in order:
+        lines.append(f"\n<b>{_day_label(day_iso)}</b>")
+        for (row, time_str) in groups[day_iso]:
+            counter += 1
+            _id, fs, title, slug, _first_seen = row
+            label_prefix = f"[{flt.label_for(fs)}] " if (not filter_slug and fs) else ""
+            entry = f"  {counter}. {label_prefix}<b>{html.escape(title)}</b>"
+            if time_str:
+                entry += f"  <i>{time_str}</i>"
+            if slug:
+                entry += f"\n     {POLYMARKET_EVENT_URL}/{html.escape(slug)}"
+            lines.append(entry)
+    return "\n".join(lines)
 
 
 # ---------- command handlers ----------
@@ -151,7 +312,7 @@ def handle_command(
                 events = fetch_matching_events(added, session=http)
                 for ev in events:
                     if not store.has(ev.id):
-                        store.add(ev.id, ev.filter_slug or "", ev.title)
+                        store.add(ev.id, ev.filter_slug or "", ev.title, ev.slug or "")
                 log.info("Bootstrapped %d event(s) for %s", len(events), added)
             except Exception as e:
                 log.warning("Bootstrap fetch failed for %s: %s", added, e)
@@ -239,6 +400,9 @@ def handle_command(
             + "\n\n".join(rows)
         )
 
+    if cmd == "recent":
+        return _handle_recent(args, store)
+
     return f"Unknown command: <code>/{html.escape(cmd)}</code>. Try /help."
 
 
@@ -319,7 +483,7 @@ def poll_polymarket(
             continue
         msg = format_event(ev)
         if tg.send_message(msg):
-            store.add(ev.id, ev.filter_slug or "", ev.title)
+            store.add(ev.id, ev.filter_slug or "", ev.title, ev.slug or "")
             log.info("Notified: [%s] %s", ev.filter_slug, ev.title)
         else:
             log.warning("Send failed, will retry next cycle: %s", ev.title)

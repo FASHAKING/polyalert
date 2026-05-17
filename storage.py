@@ -26,6 +26,7 @@ class SeenStore:
         self.db_path = str(db_path)
         with self._conn() as c:
             c.executescript(SCHEMA)
+        self._migrate()
 
     @contextmanager
     def _conn(self):
@@ -36,6 +37,13 @@ class SeenStore:
         finally:
             conn.close()
 
+    def _migrate(self) -> None:
+        """Apply additive schema migrations for older DBs."""
+        with self._conn() as c:
+            cols = {row[1] for row in c.execute("PRAGMA table_info(seen_events)").fetchall()}
+            if "slug" not in cols:
+                c.execute("ALTER TABLE seen_events ADD COLUMN slug TEXT NOT NULL DEFAULT ''")
+
     # ---- seen events ----
 
     def has(self, event_id: str) -> bool:
@@ -43,16 +51,50 @@ class SeenStore:
             cur = c.execute("SELECT 1 FROM seen_events WHERE id = ?", (event_id,))
             return cur.fetchone() is not None
 
-    def add(self, event_id: str, league: str, title: str) -> None:
+    def add(self, event_id: str, league: str, title: str, slug: str = "") -> None:
         with self._conn() as c:
             c.execute(
-                "INSERT OR IGNORE INTO seen_events (id, league, title) VALUES (?, ?, ?)",
-                (event_id, league, title),
+                "INSERT OR IGNORE INTO seen_events (id, league, title, slug) VALUES (?, ?, ?, ?)",
+                (event_id, league, title, slug),
             )
 
     def count(self) -> int:
         with self._conn() as c:
             return c.execute("SELECT COUNT(*) FROM seen_events").fetchone()[0]
+
+    def recent(
+        self,
+        limit: int = 10,
+        filter_slug: str | None = None,
+        on_date: str | None = None,
+        since_date: str | None = None,
+    ) -> list[tuple[str, str, str, str, str]]:
+        """Return [(id, filter_slug, title, slug, first_seen), ...] newest first.
+
+        ``on_date`` (YYYY-MM-DD): keep rows whose first_seen falls on that
+        local-time day. ``since_date`` (YYYY-MM-DD): keep rows on or after
+        that local-time day. Pass at most one.
+        """
+        wheres: list[str] = []
+        params: list = []
+        if filter_slug:
+            wheres.append("league = ?")
+            params.append(filter_slug)
+        if on_date:
+            wheres.append("date(first_seen, 'localtime') = ?")
+            params.append(on_date)
+        elif since_date:
+            wheres.append("date(first_seen, 'localtime') >= ?")
+            params.append(since_date)
+
+        sql = "SELECT id, league, title, slug, first_seen FROM seen_events"
+        if wheres:
+            sql += " WHERE " + " AND ".join(wheres)
+        sql += " ORDER BY first_seen DESC, rowid DESC LIMIT ?"
+        params.append(limit)
+
+        with self._conn() as c:
+            return c.execute(sql, params).fetchall()
 
     # ---- settings (key/value) ----
 
