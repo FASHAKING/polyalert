@@ -8,6 +8,31 @@ by default), and sends a Telegram message for each new event it hasn't seen
 before. Seen events are tracked in a local SQLite file so restarts don't
 re-spam old listings.
 
+## One-liner quick start
+
+Replace `<TOKEN>` and `<CHAT_ID>` with the values from BotFather and
+`getUpdates` (see [Setup](#setup) below). The clone-and-run command works on
+all three platforms once Python + git are installed.
+
+**Linux / macOS (bash / zsh):**
+```bash
+git clone https://github.com/FASHAKING/poltalert.git && cd poltalert && pip install -r requirements.txt && TELEGRAM_BOT_TOKEN=<TOKEN> TELEGRAM_CHAT_ID=<CHAT_ID> python3 bot.py
+```
+
+**Termux (Android)** — first install Python + git, then run the same line:
+```bash
+pkg install -y python git && git clone https://github.com/FASHAKING/poltalert.git && cd poltalert && pip install -r requirements.txt && TELEGRAM_BOT_TOKEN=<TOKEN> TELEGRAM_CHAT_ID=<CHAT_ID> python bot.py
+```
+
+**Windows PowerShell:**
+```powershell
+git clone https://github.com/FASHAKING/poltalert.git; cd poltalert; pip install -r requirements.txt; $env:TELEGRAM_BOT_TOKEN="<TOKEN>"; $env:TELEGRAM_CHAT_ID="<CHAT_ID>"; python bot.py
+```
+
+After the first successful run a `seen.db` file is created in the working
+directory — keep that file around so the bot doesn't re-notify on restart.
+Stop with Ctrl+C.
+
 ## Setup
 
 ### 1. Create a Telegram bot
