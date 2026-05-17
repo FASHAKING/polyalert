@@ -66,22 +66,35 @@ class SeenStore:
         self,
         limit: int = 10,
         filter_slug: str | None = None,
+        on_date: str | None = None,
+        since_date: str | None = None,
     ) -> list[tuple[str, str, str, str, str]]:
-        """Return [(id, filter_slug, title, slug, first_seen), ...] newest first."""
+        """Return [(id, filter_slug, title, slug, first_seen), ...] newest first.
+
+        ``on_date`` (YYYY-MM-DD): keep rows whose first_seen falls on that
+        local-time day. ``since_date`` (YYYY-MM-DD): keep rows on or after
+        that local-time day. Pass at most one.
+        """
+        wheres: list[str] = []
+        params: list = []
+        if filter_slug:
+            wheres.append("league = ?")
+            params.append(filter_slug)
+        if on_date:
+            wheres.append("date(first_seen, 'localtime') = ?")
+            params.append(on_date)
+        elif since_date:
+            wheres.append("date(first_seen, 'localtime') >= ?")
+            params.append(since_date)
+
+        sql = "SELECT id, league, title, slug, first_seen FROM seen_events"
+        if wheres:
+            sql += " WHERE " + " AND ".join(wheres)
+        sql += " ORDER BY first_seen DESC, rowid DESC LIMIT ?"
+        params.append(limit)
+
         with self._conn() as c:
-            if filter_slug:
-                rows = c.execute(
-                    "SELECT id, league, title, slug, first_seen FROM seen_events "
-                    "WHERE league = ? ORDER BY first_seen DESC, rowid DESC LIMIT ?",
-                    (filter_slug, limit),
-                ).fetchall()
-            else:
-                rows = c.execute(
-                    "SELECT id, league, title, slug, first_seen FROM seen_events "
-                    "ORDER BY first_seen DESC, rowid DESC LIMIT ?",
-                    (limit,),
-                ).fetchall()
-            return rows
+            return c.execute(sql, params).fetchall()
 
     # ---- settings (key/value) ----
 
