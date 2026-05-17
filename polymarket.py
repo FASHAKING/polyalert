@@ -90,6 +90,61 @@ def fetch_matching_events(
     return out
 
 
+def list_filter_events(
+    filter_slug: str,
+    query: str | None = None,
+    *,
+    session: requests.Session | None = None,
+    page_size: int = 200,
+    max_results: int = 10,
+) -> tuple[list[MarketEvent], str | None]:
+    """List currently-available events for a specific filter, optional sub-query.
+
+    Returns ``(events, error)``. On success ``error`` is None. On unknown
+    filter slug ``error`` describes the problem and ``events`` is empty.
+    Events are scoped to the filter's category (one Gamma call), matched
+    against the filter's tag/keyword rules, then optionally narrowed by a
+    case-insensitive substring match in title/slug/description.
+    """
+    f = REGISTRY.get(filter_slug.lower())
+    if f is None:
+        return [], f"Unknown filter: {filter_slug!r}. Use /filters to see valid slugs."
+
+    cat = CATEGORIES.get(f.category)
+    params: dict = {
+        "closed": "false",
+        "active": "true",
+        "limit": page_size,
+        "order": "volume24hr",
+        "ascending": "false",
+    }
+    if cat and cat.parent_tag:
+        params["tag_slug"] = cat.parent_tag
+
+    sess = session or requests.Session()
+    try:
+        events = _fetch(sess, params)
+    except Exception as e:
+        log.exception("list fetch failed: %s", e)
+        return [], f"Failed to reach Polymarket: {e}"
+
+    q = (query or "").strip().lower()
+    out: list[MarketEvent] = []
+    for ev in events:
+        if match_event(ev, [f]) is None:
+            continue
+        if q:
+            title = (ev.get("title") or "").lower()
+            slug = (ev.get("slug") or "").lower()
+            description = (ev.get("description") or "").lower()
+            if q not in title and q not in slug and q not in description:
+                continue
+        out.append(MarketEvent.from_dict(ev, f.slug))
+        if len(out) >= max_results:
+            break
+    return out, None
+
+
 def search_events(
     query: str,
     *,

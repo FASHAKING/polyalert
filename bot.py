@@ -15,6 +15,7 @@ import filters as flt
 from polymarket import (
     MarketEvent,
     fetch_matching_events,
+    list_filter_events,
     search_events,
 )
 from storage import SeenStore
@@ -26,7 +27,8 @@ COMMANDS = [
     ("filters", "List all available filters by category"),
     ("add", "Enable a filter: /add nfl"),
     ("remove", "Disable a filter: /remove nfl"),
-    ("search", "Search markets: /search messi"),
+    ("search", "Search all markets: /search messi"),
+    ("markets", "List markets in a filter: /markets nba chicago bulls"),
     ("help", "Show available commands"),
 ]
 
@@ -97,7 +99,9 @@ HELP_TEXT = (
     "/filters — list all filters by category\n"
     "/add &lt;slug&gt; — enable a filter (e.g. <code>/add nfl</code>)\n"
     "/remove &lt;slug&gt; — disable a filter\n"
-    "/search &lt;query&gt; — search live markets (e.g. <code>/search messi</code>)\n"
+    "/search &lt;query&gt; — search live markets across all categories (e.g. <code>/search messi</code>)\n"
+    "/markets &lt;filter&gt; [query] — list live markets in a filter "
+    "(e.g. <code>/markets nba chicago bulls</code>)\n"
     "/help — this message"
 )
 
@@ -203,6 +207,35 @@ def handle_command(
         return (
             f"<b>Search results for <i>{html.escape(query)}</i></b> ({len(hits)} match"
             f"{'es' if len(hits) != 1 else ''})\n\n"
+            + "\n\n".join(rows)
+        )
+
+    if cmd == "markets":
+        if not args:
+            return (
+                "Usage: <code>/markets &lt;filter&gt; [query]</code>\n"
+                "Examples:\n"
+                "  <code>/markets nba</code> — top live NBA markets\n"
+                "  <code>/markets nba chicago bulls</code>\n"
+                "  <code>/markets soccer manunited</code>\n"
+                "  <code>/markets nfl tom brady</code>\n\n"
+                "See /filters for valid filter slugs."
+            )
+        filter_slug = args[0].lower().lstrip("/")
+        query = " ".join(args[1:]).strip() or None
+
+        hits, err = list_filter_events(filter_slug, query, session=http)
+        if err:
+            return f"⚠️ {html.escape(err)}"
+
+        header_label = flt.label_for(filter_slug)
+        scope = f" matching <i>{html.escape(query)}</i>" if query else ""
+        if not hits:
+            return f"No live <b>{html.escape(header_label)}</b> markets found{scope}."
+        rows = [format_search_hit(i, ev) for i, ev in enumerate(hits, 1)]
+        return (
+            f"<b>{html.escape(header_label)} markets</b>{scope} "
+            f"({len(hits)} result{'s' if len(hits) != 1 else ''})\n\n"
             + "\n\n".join(rows)
         )
 

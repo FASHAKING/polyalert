@@ -52,7 +52,8 @@ toggle filters, or search live markets — no restart needed:
 | `/filters` | List every supported filter with on/off state |
 | `/add <slug>` | Enable a filter. Multi-arg works: `/add nfl bitcoin us-election` |
 | `/remove <slug>` | Disable a filter |
-| `/search <query>` | Search live Polymarket events. Works for players, managers, clubs, candidates, coins — anything in the title or slug. e.g. `/search messi`, `/search Manchester United`, `/search Klopp` |
+| `/search <query>` | Search live Polymarket events across **all** categories. e.g. `/search messi`, `/search Manchester United`, `/search Klopp` |
+| `/markets <filter> [query]` | List currently-available markets **scoped to one filter**, optionally narrowed by a query. e.g. `/markets nba` (top live NBA markets), `/markets nba chicago bulls`, `/markets soccer manunited`, `/markets nfl tom brady` |
 | `/help` | List the commands |
 
 `/leagues` is kept as an alias for `/filters` so old muscle memory still
