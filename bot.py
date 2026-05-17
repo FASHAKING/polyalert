@@ -36,31 +36,50 @@ COMMANDS = [
 
 POLYMARKET_EVENT_URL = "https://polymarket.com/event"
 
+
+def _title_link(title: str, slug: str) -> str:
+    """Return the title as a clickable HTML link if slug is non-empty,
+    otherwise plain bold text. The URL itself is not rendered."""
+    safe_title = html.escape(title)
+    if slug:
+        return f'<a href="{POLYMARKET_EVENT_URL}/{html.escape(slug)}"><b>{safe_title}</b></a>'
+    return f"<b>{safe_title}</b>"
+
+
+def _emoji_label(slug: str | None) -> str:
+    """Return e.g. '🏈 NFL' for known slugs, '' for unknown/missing."""
+    if not slug:
+        return ""
+    em = flt.emoji_for(slug)
+    label = flt.label_for(slug)
+    return f"{em} {label}".strip()
+
 TICK_SECONDS = 2
 
 
 # ---------- formatting helpers ----------
 
 def format_event(ev: MarketEvent) -> str:
+    em = flt.emoji_for(ev.filter_slug) or "🆕"
     label = flt.label_for(ev.filter_slug) if ev.filter_slug else "Polymarket"
-    title = html.escape(ev.title)
-    lines = [f"<b>[{label}] New event</b>", title]
+    lines = [f"🆕 {em} <b>{html.escape(label)}</b>", _title_link(ev.title, ev.slug)]
     if ev.end_date:
-        lines.append(f"Ends: {html.escape(ev.end_date)}")
-    lines.append(ev.url)
+        lines.append(f"🕒 Ends {html.escape(ev.end_date)}")
     return "\n".join(lines)
 
 
 def format_search_hit(i: int, ev: MarketEvent) -> str:
-    label = f"[{flt.label_for(ev.filter_slug)}] " if ev.filter_slug else ""
-    title = html.escape(ev.title)
+    em = flt.emoji_for(ev.filter_slug)
+    label = flt.label_for(ev.filter_slug) if ev.filter_slug else ""
+    prefix = f"{em} " if em else ""
+    bracket = f"[{html.escape(label)}] " if label else ""
     extras = []
     if ev.end_date:
         extras.append(f"ends {html.escape(ev.end_date)}")
     if ev.volume:
         extras.append(f"vol ${ev.volume:,.0f}")
-    suffix = f" — {' · '.join(extras)}" if extras else ""
-    return f"{i}. {label}<b>{title}</b>{suffix}\n   {ev.url}"
+    suffix = f"\n   <i>{' · '.join(extras)}</i>" if extras else ""
+    return f"{i}. {prefix}{bracket}{_title_link(ev.title, ev.slug)}{suffix}"
 
 
 def format_status(store: SeenStore, interval: int) -> str:
@@ -71,15 +90,18 @@ def format_status(store: SeenStore, interval: int) -> str:
         grouped = flt.group_active_by_category(active)
         rows = []
         for cat_slug, fs in grouped.items():
-            rows.append(f"<b>{flt.category_label(cat_slug)}</b>")
+            cat = flt.CATEGORIES.get(cat_slug)
+            cat_em = cat.emoji if cat else ""
+            rows.append(f"<b>{cat_em} {flt.category_label(cat_slug)}</b>".strip())
             for f in fs:
-                rows.append(f"  • {f.label} (<code>{f.slug}</code>)")
+                em = f.emoji or (cat.emoji if cat else "")
+                rows.append(f"  {em} {f.label} (<code>{f.slug}</code>)")
         body = "\n".join(rows)
     return (
-        "<b>polyalert status</b>\n"
-        f"Active filters:\n{body}\n\n"
-        f"Poll interval: {interval}s\n"
-        f"Events notified so far: {store.count()}"
+        "📡 <b>polyalert status</b>\n\n"
+        f"<b>Active filters</b>\n{body}\n\n"
+        f"⏱ Poll interval: {interval}s\n"
+        f"🔔 Events notified so far: {store.count()}"
     )
 
 
@@ -89,10 +111,13 @@ def format_filters_list(store: SeenStore) -> str:
     for cat_slug, fs in flt.by_category().items():
         if not fs:
             continue
-        lines.append(f"\n<b>{flt.category_label(cat_slug)}</b>")
+        cat = flt.CATEGORIES.get(cat_slug)
+        cat_em = cat.emoji if cat else ""
+        lines.append(f"\n<b>{cat_em} {flt.category_label(cat_slug)}</b>".strip())
         for f in fs:
             mark = "✅" if f.slug in active else "▫️"
-            lines.append(f"  {mark} <code>{f.slug}</code> — {f.label}")
+            em = f.emoji or (cat.emoji if cat else "")
+            lines.append(f"  {mark} {em} <code>{f.slug}</code> — {f.label}")
     lines.append("\nUse <code>/add &lt;slug&gt;</code> or <code>/remove &lt;slug&gt;</code>.")
     return "\n".join(lines)
 
@@ -220,23 +245,28 @@ def _handle_recent(args: list[str], store: SeenStore) -> str:
 
     if not rows:
         return (
-            f"No notified events{scope}.\n"
-            "The list populates as new markets get listed."
+            f"💤 No notified events{scope}.\n"
+            "<i>The list populates as new markets get listed.</i>"
         )
 
-    header = f"<b>Recent notifications</b>{scope} ({len(rows)} shown)"
+    header = f"🔔 <b>Recent notifications</b>{scope} ({len(rows)} shown)"
+
+    def _row_prefix(fs: str | None) -> str:
+        em = flt.emoji_for(fs)
+        if filter_slug:
+            return f"{em} " if em else ""
+        if fs:
+            return f"{em} [{html.escape(flt.label_for(fs))}] " if em else f"[{html.escape(flt.label_for(fs))}] "
+        return ""
 
     # When the query is scoped to a single day, render flat. Otherwise group.
     if on_date:
         lines = [header, ""]
         for i, (_id, fs, title, slug, first_seen) in enumerate(rows, 1):
             _, time_str = _row_local_parts(first_seen)
-            label_prefix = f"[{flt.label_for(fs)}] " if (not filter_slug and fs) else ""
-            entry = f"{i}. {label_prefix}<b>{html.escape(title)}</b>"
+            entry = f"{i}. {_row_prefix(fs)}{_title_link(title, slug)}"
             if time_str:
-                entry += f"\n   <i>{time_str}</i>"
-            if slug:
-                entry += f"\n   {POLYMARKET_EVENT_URL}/{html.escape(slug)}"
+                entry += f"  <i>🕒 {time_str}</i>"
             lines.append(entry)
         return "\n".join(lines)
 
@@ -253,16 +283,13 @@ def _handle_recent(args: list[str], store: SeenStore) -> str:
     lines = [header]
     counter = 0
     for day_iso in order:
-        lines.append(f"\n<b>{_day_label(day_iso)}</b>")
+        lines.append(f"\n📅 <b>{_day_label(day_iso)}</b>")
         for (row, time_str) in groups[day_iso]:
             counter += 1
             _id, fs, title, slug, _first_seen = row
-            label_prefix = f"[{flt.label_for(fs)}] " if (not filter_slug and fs) else ""
-            entry = f"  {counter}. {label_prefix}<b>{html.escape(title)}</b>"
+            entry = f"  {counter}. {_row_prefix(fs)}{_title_link(title, slug)}"
             if time_str:
-                entry += f"  <i>{time_str}</i>"
-            if slug:
-                entry += f"\n     {POLYMARKET_EVENT_URL}/{html.escape(slug)}"
+                entry += f"  <i>🕒 {time_str}</i>"
             lines.append(entry)
     return "\n".join(lines)
 
@@ -363,10 +390,10 @@ def handle_command(
             )
         hits = search_events(query, session=http)
         if not hits:
-            return f"No live markets found matching <i>{html.escape(query)}</i>."
+            return f"💤 No live markets found matching <i>{html.escape(query)}</i>."
         rows = [format_search_hit(i, ev) for i, ev in enumerate(hits, 1)]
         return (
-            f"<b>Search results for <i>{html.escape(query)}</i></b> ({len(hits)} match"
+            f"🔍 <b>Search results for <i>{html.escape(query)}</i></b> ({len(hits)} match"
             f"{'es' if len(hits) != 1 else ''})\n\n"
             + "\n\n".join(rows)
         )
@@ -390,15 +417,16 @@ def handle_command(
             return f"⚠️ {html.escape(err)}"
 
         header_label = flt.label_for(filter_slug)
+        em = flt.emoji_for(filter_slug)
         scope = f" matching <i>{html.escape(query)}</i>" if query else ""
         if not hits:
-            return f"No live <b>{html.escape(header_label)}</b> markets found{scope}."
+            return f"💤 No live {em} <b>{html.escape(header_label)}</b> markets found{scope}."
         rows = [format_search_hit(i, ev) for i, ev in enumerate(hits, 1)]
         return (
-            f"<b>{html.escape(header_label)} markets</b>{scope} "
+            f"{em} <b>{html.escape(header_label)} markets</b>{scope} "
             f"({len(hits)} result{'s' if len(hits) != 1 else ''})\n\n"
             + "\n\n".join(rows)
-        )
+        ).lstrip()
 
     if cmd == "recent":
         return _handle_recent(args, store)
