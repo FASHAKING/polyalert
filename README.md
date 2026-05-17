@@ -1,4 +1,4 @@
-# poltalert
+# polyalert
 
 Telegram bot that notifies you when new sports markets are listed on Polymarket.
 
@@ -10,16 +10,33 @@ re-spam old listings.
 
 ## One-liner quick start
 
-`run.py` is a cross-platform interactive wizard. The same command works
-in bash, zsh, Termux, and PowerShell:
+`run.py` is a cross-platform interactive wizard. Pick the one-liner for
+your platform — it installs every dependency (Python, git, pip packages),
+clones the repo, and launches the setup wizard.
 
-```
-git clone https://github.com/FASHAKING/poltalert.git; cd poltalert; python run.py
+**Termux (Android):**
+```sh
+pkg update -y && pkg install -y python git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && pip install -r requirements.txt && python run.py
 ```
 
-**Termux only** — install Python + git first:
+**Linux (Debian/Ubuntu):**
+```sh
+sudo apt update && sudo apt install -y python3 python3-pip python3-venv git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python run.py
 ```
-pkg install -y python git
+
+**Linux (Fedora/RHEL):**
+```sh
+sudo dnf install -y python3 python3-pip git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python run.py
+```
+
+**Linux (Arch):**
+```sh
+sudo pacman -Sy --noconfirm python python-pip git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python run.py
+```
+
+**Windows PowerShell:**
+```powershell
+winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements; winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python run.py
 ```
 
 The wizard walks you through four steps:
@@ -111,16 +128,16 @@ All via env vars (or `.env`):
 ## Running as a service (systemd)
 
 ```ini
-# /etc/systemd/system/poltalert.service
+# /etc/systemd/system/polyalert.service
 [Unit]
 Description=Polymarket sports market notifier
 After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/poltalert
-EnvironmentFile=/opt/poltalert/.env
-ExecStart=/opt/poltalert/.venv/bin/python bot.py
+WorkingDirectory=/opt/polyalert
+EnvironmentFile=/opt/polyalert/.env
+ExecStart=/opt/polyalert/.venv/bin/python bot.py
 Restart=on-failure
 RestartSec=10
 
@@ -130,8 +147,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now poltalert
-journalctl -u poltalert -f
+sudo systemctl enable --now polyalert
+journalctl -u polyalert -f
 ```
 
 ## How filtering works

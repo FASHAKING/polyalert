@@ -54,7 +54,7 @@ def format_status(store: SeenStore, interval: int) -> str:
     else:
         active = "  <i>(none — bot will not notify until you /add one)</i>"
     return (
-        "<b>poltalert status</b>\n"
+        "<b>polyalert status</b>\n"
         f"Active leagues:\n{active}\n\n"
         f"Poll interval: {interval}s\n"
         f"Events notified so far: {store.count()}"
@@ -75,7 +75,7 @@ def format_leagues_list(store: SeenStore) -> str:
 
 
 HELP_TEXT = (
-    "<b>poltalert commands</b>\n"
+    "<b>polyalert commands</b>\n"
     "/status — current filters and stats\n"
     "/leagues — list all leagues with on/off state\n"
     "/add &lt;slug&gt; — enable a league (e.g. <code>/add nfl</code>)\n"
