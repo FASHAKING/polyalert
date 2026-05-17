@@ -10,28 +10,35 @@ re-spam old listings.
 
 ## One-liner quick start
 
-Replace `<TOKEN>` and `<CHAT_ID>` with the values from BotFather and
-`getUpdates` (see [Setup](#setup) below). The clone-and-run command works on
-all three platforms once Python + git are installed.
+`run.py` is a cross-platform bootstrap that detects your environment
+(Termux / Linux / macOS / Windows), installs dependencies, prompts for your
+Telegram token and chat id on first run, then starts the bot. The same
+command works in bash, zsh, Termux, and PowerShell:
 
-**Linux / macOS (bash / zsh):**
-```bash
-git clone https://github.com/FASHAKING/poltalert.git && cd poltalert && pip install -r requirements.txt && TELEGRAM_BOT_TOKEN=<TOKEN> TELEGRAM_CHAT_ID=<CHAT_ID> python3 bot.py
+```
+git clone https://github.com/FASHAKING/poltalert.git; cd poltalert; python run.py
 ```
 
-**Termux (Android)** — first install Python + git, then run the same line:
-```bash
-pkg install -y python git && git clone https://github.com/FASHAKING/poltalert.git && cd poltalert && pip install -r requirements.txt && TELEGRAM_BOT_TOKEN=<TOKEN> TELEGRAM_CHAT_ID=<CHAT_ID> python bot.py
+**Termux only** — install Python + git first:
+```
+pkg install -y python git
 ```
 
-**Windows PowerShell:**
-```powershell
-git clone https://github.com/FASHAKING/poltalert.git; cd poltalert; pip install -r requirements.txt; $env:TELEGRAM_BOT_TOKEN="<TOKEN>"; $env:TELEGRAM_CHAT_ID="<CHAT_ID>"; python bot.py
-```
+On first launch `run.py` will:
 
-After the first successful run a `seen.db` file is created in the working
-directory — keep that file around so the bot doesn't re-notify on restart.
-Stop with Ctrl+C.
+1. Detect Termux / Linux / macOS / Windows and pick the right `pip` flags
+   (auto-retries with `--break-system-packages --user` on PEP 668 systems).
+2. Install `requests` and `python-dotenv`.
+3. Prompt for your `TELEGRAM_BOT_TOKEN` (hidden input) and
+   `TELEGRAM_CHAT_ID`, save them to `.env` with `0600` perms.
+4. Launch the polling loop.
+
+Subsequent runs are just `python run.py` from inside the repo (or
+`python bot.py` directly if you'd rather skip the dep check).
+
+A `seen.db` file is created in the working directory after the first
+successful poll — keep that file around so the bot doesn't re-notify on
+restart. Stop with Ctrl+C.
 
 ## Setup
 
