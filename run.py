@@ -25,15 +25,7 @@ ROOT = Path(__file__).resolve().parent
 ENV_FILE = ROOT / ".env"
 REQUIREMENTS = ROOT / "requirements.txt"
 
-DEFAULT_LEAGUES = ["nfl", "nba", "mlb", "soccer", "epl", "champions-league"]
-LEAGUE_LABELS = {
-    "nfl": "NFL",
-    "nba": "NBA",
-    "mlb": "MLB",
-    "soccer": "Soccer (all)",
-    "epl": "Premier League (EPL)",
-    "champions-league": "UEFA Champions League",
-}
+DEFAULT_FILTERS = ["nfl", "nba", "mlb", "soccer", "epl", "champions-league"]
 
 
 # ---------- environment detection ----------
@@ -107,21 +99,34 @@ def ask_int(label: str, *, default: int, minimum: int = 1) -> int:
             print("   (please enter an integer)")
 
 
-def ask_leagues(current: list[str] | None = None) -> list[str]:
-    keys = list(LEAGUE_LABELS.keys())
-    selected = set(current or DEFAULT_LEAGUES)
+def ask_filters(current: list[str] | None = None) -> list[str]:
+    # Lazy import so dependency-install step in main() can run first.
+    import filters as flt  # type: ignore
+
+    keys: list[str] = []
     print()
-    print("Pick the leagues to watch. Enter numbers separated by commas, or")
-    print("press Enter to keep the current selection (marked with *).")
+    print("Pick the filters to watch. Enter numbers separated by commas, or")
+    print("press Enter to keep the current selection (marked with *). Filters")
+    print("can be added/removed live via Telegram with /add and /remove.")
     print()
-    for i, k in enumerate(keys, 1):
-        mark = "*" if k in selected else " "
-        print(f"   [{mark}] {i}. {LEAGUE_LABELS[k]}")
-    print()
+
+    selected = set(current or DEFAULT_FILTERS)
+    counter = 0
+    for cat_slug, fs in flt.by_category().items():
+        if not fs:
+            continue
+        print(f"  -- {flt.category_label(cat_slug)} --")
+        for f in fs:
+            counter += 1
+            keys.append(f.slug)
+            mark = "*" if f.slug in selected else " "
+            print(f"   [{mark}] {counter}. {f.label}  ({f.slug})")
+        print()
+
     while True:
         raw = _input("Selection (e.g. 1,2,3) [keep]: ").strip()
         if not raw:
-            return sorted(selected, key=keys.index)
+            return sorted(selected, key=lambda s: keys.index(s) if s in keys else len(keys))
         try:
             picks = {int(x.strip()) for x in raw.split(",") if x.strip()}
             if not picks or any(p < 1 or p > len(keys) for p in picks):
@@ -285,10 +290,12 @@ def wizard(existing: dict[str, str]) -> dict[str, str]:
     print(f"   chat ID set to: {chat_id}")
 
     print()
-    print("Step 3/4 — Leagues to watch")
-    current_leagues = [s.strip() for s in existing.get("LEAGUES", ",".join(DEFAULT_LEAGUES)).split(",") if s.strip()]
-    leagues = ask_leagues(current_leagues)
-    print(f"   watching: {', '.join(LEAGUE_LABELS.get(l, l) for l in leagues)}")
+    print("Step 3/4 — Filters to watch")
+    raw = existing.get("FILTERS") or existing.get("LEAGUES") or ",".join(DEFAULT_FILTERS)
+    current_filters = [s.strip() for s in raw.split(",") if s.strip()]
+    selected = ask_filters(current_filters)
+    import filters as flt  # type: ignore
+    print(f"   watching: {', '.join(flt.label_for(s) for s in selected)}")
 
     print()
     print("Step 4/4 — Poll interval")
@@ -298,7 +305,7 @@ def wizard(existing: dict[str, str]) -> dict[str, str]:
     return {
         "TELEGRAM_BOT_TOKEN": token,
         "TELEGRAM_CHAT_ID": chat_id,
-        "LEAGUES": ",".join(leagues),
+        "FILTERS": ",".join(selected),
         "POLL_INTERVAL_SECONDS": str(interval),
         "DB_PATH": existing.get("DB_PATH", "seen.db"),
         "LOG_LEVEL": existing.get("LOG_LEVEL", "INFO"),

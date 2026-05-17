@@ -43,26 +43,46 @@ restarts don't re-notify. Stop with Ctrl+C.
 
 ## Telegram commands
 
-Once the bot is running, message it directly to inspect and change
-filters live (no restart needed):
+Once the bot is running, message it directly to inspect filters,
+toggle filters, or search live markets — no restart needed:
 
 | Command | What it does |
 | --- | --- |
-| `/status` | Show active leagues, poll interval, total notified count |
-| `/leagues` | List every supported league with on/off state |
-| `/add <slug>` | Enable a league. Multi-arg works: `/add nfl nba ufc` |
-| `/remove <slug>` | Disable a league |
+| `/status` | Show active filters (grouped by category), poll interval, total notified |
+| `/filters` | List every supported filter with on/off state |
+| `/add <slug>` | Enable a filter. Multi-arg works: `/add nfl bitcoin us-election` |
+| `/remove <slug>` | Disable a filter |
+| `/search <query>` | Search live Polymarket events. Works for players, managers, clubs, candidates, coins — anything in the title or slug. e.g. `/search messi`, `/search Manchester United`, `/search Klopp` |
 | `/help` | List the commands |
 
-Available league slugs: `nfl`, `nba`, `mlb`, `nhl`, `soccer`, `epl`,
-`champions-league`, `mls`, `ufc`, `tennis`, `f1`. Add more by editing
-`LEAGUE_TAG_SLUGS` in `polymarket.py`.
+`/leagues` is kept as an alias for `/filters` so old muscle memory still
+works.
 
-When you `/add` a league, the bot silently marks its currently-listed
-events as "seen" so you only get notified about *future* listings — no
-backlog spam. Filter changes are persisted to `seen.db`, so they survive
-restarts. The bot only responds to messages from the chat ID you
-configured during setup; everyone else is ignored.
+### Available filters
+
+Filters are organized by category. The built-in set:
+
+- **Sports**: `nfl`, `nba`, `mlb`, `nhl`, `soccer`, `epl`,
+  `champions-league`, `mls`, `ufc`, `tennis`, `f1`
+- **Crypto**: `bitcoin`, `ethereum`
+- **Politics**: `us-election`
+- **Entertainment**: `oscars`
+
+Add more by appending entries to `REGISTRY` in `filters.py` (and a new
+category to `CATEGORIES` if needed). The registry is a single dict —
+adding a new filter is literally one line.
+
+### Behavior notes
+
+- When you `/add` a filter, the bot silently marks that filter's
+  currently-listed events as "seen" so you only get notified about
+  *future* listings — no backlog spam.
+- Filter state is persisted to `seen.db`, so changes survive restarts.
+- The bot only responds to messages from the chat ID you configured
+  during setup; everyone else is ignored.
+- `/search` queries the live Gamma API on demand (does not poll), so
+  results reflect what's open right now. It searches title, slug, and
+  description for a case-insensitive substring match.
 
 ## Setup
 

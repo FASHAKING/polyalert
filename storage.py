@@ -69,12 +69,21 @@ class SeenStore:
                 (key, value),
             )
 
-    # ---- leagues helper ----
+    # ---- filters helper ----
 
-    def get_leagues(self) -> list[str]:
-        raw = self.get_setting("leagues", "") or ""
-        return [s.strip().lower() for s in raw.split(",") if s.strip()]
+    def get_filters(self) -> list[str]:
+        # Backward compat: older installs stored this under 'leagues'.
+        raw = self.get_setting("filters")
+        if raw is None:
+            raw = self.get_setting("leagues") or ""
+            if raw:
+                self.set_setting("filters", raw)
+        return [s.strip().lower() for s in (raw or "").split(",") if s.strip()]
 
-    def set_leagues(self, leagues: list[str]) -> None:
-        clean = sorted({l.strip().lower() for l in leagues if l.strip()})
-        self.set_setting("leagues", ",".join(clean))
+    def set_filters(self, slugs: list[str]) -> None:
+        clean = sorted({s.strip().lower() for s in slugs if s.strip()})
+        self.set_setting("filters", ",".join(clean))
+
+    # Backward-compatible aliases (older code paths in this repo).
+    get_leagues = get_filters
+    set_leagues = set_filters

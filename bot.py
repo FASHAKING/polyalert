@@ -1,4 +1,4 @@
-"""Polymarket -> Telegram new-sports-market notifier with live commands."""
+"""Polymarket -> Telegram notifier with live commands and free-text search."""
 from __future__ import annotations
 
 import html
@@ -11,75 +11,93 @@ import time
 import requests
 from dotenv import load_dotenv
 
+import filters as flt
 from polymarket import (
-    ALL_LEAGUES,
-    LEAGUE_LABELS,
     MarketEvent,
-    fetch_new_sports_events,
+    fetch_matching_events,
+    search_events,
 )
 from storage import SeenStore
 from telegram_client import TelegramClient
 
 
 COMMANDS = [
-    ("status", "Show current filters and bot stats"),
-    ("leagues", "List all available leagues with on/off state"),
-    ("add", "Enable a league: /add nfl"),
-    ("remove", "Disable a league: /remove nfl"),
+    ("status", "Show current filters and stats"),
+    ("filters", "List all available filters by category"),
+    ("add", "Enable a filter: /add nfl"),
+    ("remove", "Disable a filter: /remove nfl"),
+    ("search", "Search markets: /search messi"),
     ("help", "Show available commands"),
 ]
 
-TICK_SECONDS = 2  # how often we drain Telegram updates
+TICK_SECONDS = 2
 
 
 # ---------- formatting helpers ----------
 
-def _label(league: str) -> str:
-    return LEAGUE_LABELS.get(league, league.upper())
-
-
 def format_event(ev: MarketEvent) -> str:
+    label = flt.label_for(ev.filter_slug) if ev.filter_slug else "Polymarket"
     title = html.escape(ev.title)
-    lines = [f"<b>[{_label(ev.league)}] New Polymarket event</b>", title]
+    lines = [f"<b>[{label}] New event</b>", title]
     if ev.end_date:
         lines.append(f"Ends: {html.escape(ev.end_date)}")
     lines.append(ev.url)
     return "\n".join(lines)
 
 
+def format_search_hit(i: int, ev: MarketEvent) -> str:
+    label = f"[{flt.label_for(ev.filter_slug)}] " if ev.filter_slug else ""
+    title = html.escape(ev.title)
+    extras = []
+    if ev.end_date:
+        extras.append(f"ends {html.escape(ev.end_date)}")
+    if ev.volume:
+        extras.append(f"vol ${ev.volume:,.0f}")
+    suffix = f" — {' · '.join(extras)}" if extras else ""
+    return f"{i}. {label}<b>{title}</b>{suffix}\n   {ev.url}"
+
+
 def format_status(store: SeenStore, interval: int) -> str:
-    leagues = store.get_leagues()
-    if leagues:
-        active = "\n".join(f"  • {_label(l)} (<code>{l}</code>)" for l in leagues)
+    active = store.get_filters()
+    if not active:
+        body = "  <i>(none — bot will not notify until you /add one)</i>"
     else:
-        active = "  <i>(none — bot will not notify until you /add one)</i>"
+        grouped = flt.group_active_by_category(active)
+        rows = []
+        for cat_slug, fs in grouped.items():
+            rows.append(f"<b>{flt.category_label(cat_slug)}</b>")
+            for f in fs:
+                rows.append(f"  • {f.label} (<code>{f.slug}</code>)")
+        body = "\n".join(rows)
     return (
         "<b>poltalert status</b>\n"
-        f"Active leagues:\n{active}\n\n"
+        f"Active filters:\n{body}\n\n"
         f"Poll interval: {interval}s\n"
         f"Events notified so far: {store.count()}"
     )
 
 
-def format_leagues_list(store: SeenStore) -> str:
-    active = set(store.get_leagues())
-    rows = []
-    for slug in ALL_LEAGUES:
-        mark = "✅" if slug in active else "▫️"
-        rows.append(f"{mark} <code>{slug}</code> — {_label(slug)}")
-    return (
-        "<b>Available leagues</b>\n"
-        + "\n".join(rows)
-        + "\n\nUse <code>/add &lt;slug&gt;</code> or <code>/remove &lt;slug&gt;</code>."
-    )
+def format_filters_list(store: SeenStore) -> str:
+    active = set(store.get_filters())
+    lines = ["<b>Available filters</b>"]
+    for cat_slug, fs in flt.by_category().items():
+        if not fs:
+            continue
+        lines.append(f"\n<b>{flt.category_label(cat_slug)}</b>")
+        for f in fs:
+            mark = "✅" if f.slug in active else "▫️"
+            lines.append(f"  {mark} <code>{f.slug}</code> — {f.label}")
+    lines.append("\nUse <code>/add &lt;slug&gt;</code> or <code>/remove &lt;slug&gt;</code>.")
+    return "\n".join(lines)
 
 
 HELP_TEXT = (
     "<b>poltalert commands</b>\n"
     "/status — current filters and stats\n"
-    "/leagues — list all leagues with on/off state\n"
-    "/add &lt;slug&gt; — enable a league (e.g. <code>/add nfl</code>)\n"
-    "/remove &lt;slug&gt; — disable a league\n"
+    "/filters — list all filters by category\n"
+    "/add &lt;slug&gt; — enable a filter (e.g. <code>/add nfl</code>)\n"
+    "/remove &lt;slug&gt; — disable a filter\n"
+    "/search &lt;query&gt; — search live markets (e.g. <code>/search messi</code>)\n"
     "/help — this message"
 )
 
@@ -89,8 +107,8 @@ HELP_TEXT = (
 def handle_command(
     cmd: str,
     args: list[str],
+    raw_text: str,
     store: SeenStore,
-    tg: TelegramClient,
     interval: int,
     http: requests.Session,
     log: logging.Logger,
@@ -103,34 +121,34 @@ def handle_command(
     if cmd == "status":
         return format_status(store, interval)
 
-    if cmd == "leagues":
-        return format_leagues_list(store)
+    if cmd in ("filters", "leagues"):  # /leagues kept as alias
+        return format_filters_list(store)
 
     if cmd == "add":
         if not args:
-            return "Usage: <code>/add &lt;slug&gt;</code>. See /leagues for valid slugs."
+            return "Usage: <code>/add &lt;slug&gt;</code>. See /filters for valid slugs."
         added, unknown, already = [], [], []
-        current = set(store.get_leagues())
+        current = set(store.get_filters())
         for raw in args:
             slug = raw.lower().lstrip("/")
-            if slug not in ALL_LEAGUES:
+            if slug not in flt.REGISTRY:
                 unknown.append(slug)
             elif slug in current:
                 already.append(slug)
             else:
                 current.add(slug)
                 added.append(slug)
-        store.set_leagues(sorted(current))
+        store.set_filters(sorted(current))
 
-        # Silently bootstrap newly added leagues so we don't blast the user
-        # with the entire current backlog of that league.
+        # Silently bootstrap newly added filters so we don't blast the user
+        # with the entire current backlog of that filter.
         if added:
             try:
-                events = fetch_new_sports_events(added, session=http)
+                events = fetch_matching_events(added, session=http)
                 for ev in events:
                     if not store.has(ev.id):
-                        store.add(ev.id, ev.league, ev.title)
-                log.info("Bootstrapped %d existing event(s) for %s", len(events), added)
+                        store.add(ev.id, ev.filter_slug or "", ev.title)
+                log.info("Bootstrapped %d event(s) for %s", len(events), added)
             except Exception as e:
                 log.warning("Bootstrap fetch failed for %s: %s", added, e)
 
@@ -149,7 +167,7 @@ def handle_command(
         if not args:
             return "Usage: <code>/remove &lt;slug&gt;</code>."
         removed, missing = [], []
-        current = set(store.get_leagues())
+        current = set(store.get_filters())
         for raw in args:
             slug = raw.lower().lstrip("/")
             if slug in current:
@@ -157,7 +175,7 @@ def handle_command(
                 removed.append(slug)
             else:
                 missing.append(slug)
-        store.set_leagues(sorted(current))
+        store.set_filters(sorted(current))
         parts = []
         if removed:
             parts.append("Removed: " + ", ".join(f"<code>{s}</code>" for s in removed))
@@ -167,11 +185,31 @@ def handle_command(
         parts.append(format_status(store, interval))
         return "\n".join(parts)
 
+    if cmd == "search":
+        # Use raw_text so multi-word queries like "Manchester United" work.
+        query = raw_text.split(None, 1)[1].strip() if " " in raw_text else ""
+        if not query:
+            return (
+                "Usage: <code>/search &lt;query&gt;</code>\n"
+                "Examples:\n"
+                "  <code>/search messi</code>\n"
+                "  <code>/search Manchester United</code>\n"
+                "  <code>/search Klopp</code>"
+            )
+        hits = search_events(query, session=http)
+        if not hits:
+            return f"No live markets found matching <i>{html.escape(query)}</i>."
+        rows = [format_search_hit(i, ev) for i, ev in enumerate(hits, 1)]
+        return (
+            f"<b>Search results for <i>{html.escape(query)}</i></b> ({len(hits)} match"
+            f"{'es' if len(hits) != 1 else ''})\n\n"
+            + "\n\n".join(rows)
+        )
+
     return f"Unknown command: <code>/{html.escape(cmd)}</code>. Try /help."
 
 
 def parse_command(text: str) -> tuple[str, list[str]] | None:
-    """Return (command, args) for messages like '/add nfl nba'."""
     text = text.strip()
     if not text.startswith("/"):
         return None
@@ -179,7 +217,6 @@ def parse_command(text: str) -> tuple[str, list[str]] | None:
     if not parts:
         return None
     cmd = parts[0]
-    # Strip @botname suffix (Telegram appends it in groups).
     if "@" in cmd:
         cmd = cmd.split("@", 1)[0]
     return cmd, parts[1:]
@@ -217,7 +254,7 @@ def drain_updates(
         cmd, args = parsed
         log.info("Command: /%s %s", cmd, " ".join(args))
         try:
-            reply = handle_command(cmd, args, store, tg, interval, http, log)
+            reply = handle_command(cmd, args, text, store, interval, http, log)
         except Exception as e:
             log.exception("Command handler crashed")
             reply = f"⚠️ Internal error: {html.escape(str(e))}"
@@ -234,14 +271,13 @@ def poll_polymarket(
     *,
     silent_bootstrap: bool,
 ) -> bool:
-    """Fetch and notify. Returns True if bootstrap silenced this round."""
-    leagues = store.get_leagues()
-    if not leagues:
-        log.info("No leagues active — skipping poll. Use /add via Telegram.")
+    active = store.get_filters()
+    if not active:
+        log.info("No filters active — skipping poll. Use /add via Telegram.")
         return False
 
     try:
-        events = fetch_new_sports_events(leagues, session=http)
+        events = fetch_matching_events(active, session=http)
     except Exception as e:
         log.exception("Polymarket fetch failed: %s", e)
         return False
@@ -251,12 +287,12 @@ def poll_polymarket(
         if store.has(ev.id):
             continue
         if silent_bootstrap:
-            store.add(ev.id, ev.league, ev.title)
+            store.add(ev.id, ev.filter_slug or "", ev.title)
             continue
         msg = format_event(ev)
         if tg.send_message(msg):
-            store.add(ev.id, ev.league, ev.title)
-            log.info("Notified: [%s] %s", ev.league, ev.title)
+            store.add(ev.id, ev.filter_slug or "", ev.title)
+            log.info("Notified: [%s] %s", ev.filter_slug, ev.title)
         else:
             log.warning("Send failed, will retry next cycle: %s", ev.title)
     return silent_bootstrap
@@ -295,29 +331,30 @@ def run() -> None:
 
     store = SeenStore(db_path)
 
-    # Seed leagues from env on first run only; afterwards leagues live in the DB
-    # and are mutated by /add and /remove.
-    if not store.get_leagues():
-        env_leagues = [
+    # Seed filters on first run only. Afterwards the DB is the source of truth.
+    if not store.get_filters():
+        env_filters = [
             s.strip().lower()
-            for s in os.environ.get("LEAGUES", "nfl,nba,mlb,soccer,epl,champions-league").split(",")
+            for s in os.environ.get(
+                "FILTERS",
+                os.environ.get("LEAGUES", "nfl,nba,mlb,soccer,epl,champions-league"),
+            ).split(",")
             if s.strip()
         ]
-        store.set_leagues(env_leagues)
-        log.info("Seeded leagues from env: %s", env_leagues)
+        store.set_filters(env_filters)
+        log.info("Seeded filters from env: %s", env_filters)
 
     tg = TelegramClient(token, str(authorized_chat_id))
     http = requests.Session()
 
-    # Register the command menu with Telegram (best-effort).
     try:
         tg.set_my_commands(COMMANDS)
     except Exception as e:
         log.warning("set_my_commands failed: %s", e)
 
     log.info(
-        "Starting: leagues=%s interval=%ss seen=%d",
-        store.get_leagues(), interval, store.count(),
+        "Starting: filters=%s interval=%ss seen=%d",
+        store.get_filters(), interval, store.count(),
     )
 
     stop = {"flag": False}
@@ -329,16 +366,12 @@ def run() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    # On first run (no seen events yet), silently mark current matches so the
-    # user doesn't get a wall of notifications for the existing backlog.
     first_run = store.count() == 0
     last_poll = 0.0
 
     while not stop["flag"]:
-        # 1) Drain Telegram commands every tick.
         drain_updates(tg, store, authorized_chat_id, http, interval, log)
 
-        # 2) Poll Polymarket on the configured interval.
         now = time.time()
         if now - last_poll >= interval:
             silenced = poll_polymarket(store, tg, http, log, silent_bootstrap=first_run)
@@ -347,7 +380,6 @@ def run() -> None:
                 first_run = False
             last_poll = now
 
-        # Short sleep so commands feel responsive.
         slept = 0
         while slept < TICK_SECONDS and not stop["flag"]:
             time.sleep(0.5)
