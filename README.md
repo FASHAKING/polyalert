@@ -78,6 +78,7 @@ restarts don't re-notify. Stop with Ctrl+C.
 | `/remove <slug>` | Disable a filter |
 | `/search <query>` | Free-text search across **all** live markets. e.g. `/search messi`, `/search Manchester United`, `/search Klopp` |
 | `/markets <filter> [query]` | List live markets **scoped to one filter**, optionally narrowed. e.g. `/markets nba`, `/markets nba chicago bulls`, `/markets soccer manunited`, `/markets nfl tom brady` |
+| `/recent [filter] [count]` | Show events the bot has **already notified you about** (from `seen.db`). Args are positional and either: a filter slug, an integer count, or both in any order. e.g. `/recent` (last 10), `/recent nfl`, `/recent 25`, `/recent nfl 25` |
 | `/help` | List the commands |
 
 `/leagues` is kept as an alias for `/filters` so old muscle memory still

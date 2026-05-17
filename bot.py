@@ -29,8 +29,11 @@ COMMANDS = [
     ("remove", "Disable a filter: /remove nfl"),
     ("search", "Search all markets: /search messi"),
     ("markets", "List markets in a filter: /markets nba chicago bulls"),
+    ("recent", "Show events the bot has already notified: /recent [filter] [count]"),
     ("help", "Show available commands"),
 ]
+
+POLYMARKET_EVENT_URL = "https://polymarket.com/event"
 
 TICK_SECONDS = 2
 
@@ -102,6 +105,8 @@ HELP_TEXT = (
     "/search &lt;query&gt; — search live markets across all categories (e.g. <code>/search messi</code>)\n"
     "/markets &lt;filter&gt; [query] — list live markets in a filter "
     "(e.g. <code>/markets nba chicago bulls</code>)\n"
+    "/recent [filter] [count] — events the bot has already notified "
+    "(e.g. <code>/recent</code>, <code>/recent nfl</code>, <code>/recent 25</code>)\n"
     "/help — this message"
 )
 
@@ -151,7 +156,7 @@ def handle_command(
                 events = fetch_matching_events(added, session=http)
                 for ev in events:
                     if not store.has(ev.id):
-                        store.add(ev.id, ev.filter_slug or "", ev.title)
+                        store.add(ev.id, ev.filter_slug or "", ev.title, ev.slug or "")
                 log.info("Bootstrapped %d event(s) for %s", len(events), added)
             except Exception as e:
                 log.warning("Bootstrap fetch failed for %s: %s", added, e)
@@ -239,6 +244,51 @@ def handle_command(
             + "\n\n".join(rows)
         )
 
+    if cmd == "recent":
+        filter_slug: str | None = None
+        limit = 10
+        for raw in args:
+            a = raw.lower().lstrip("/")
+            if a.isdigit():
+                limit = max(1, min(int(a), 50))
+            elif a in flt.REGISTRY:
+                filter_slug = a
+            else:
+                return (
+                    f"Unknown argument: <code>{html.escape(a)}</code>\n"
+                    "Usage: <code>/recent [filter] [count]</code>\n"
+                    "Examples:\n"
+                    "  <code>/recent</code> — last 10 notified events\n"
+                    "  <code>/recent nfl</code> — last 10 NFL events\n"
+                    "  <code>/recent nfl 25</code> — last 25 NFL events\n"
+                    "  <code>/recent 25</code> — last 25 across all filters"
+                )
+
+        rows = store.recent(limit=limit, filter_slug=filter_slug)
+        if not rows:
+            scope = f" for <b>{html.escape(flt.label_for(filter_slug))}</b>" if filter_slug else ""
+            return (
+                f"No notified events yet{scope}.\n"
+                "The bot will populate this list as new markets get listed."
+            )
+
+        header = (
+            f"<b>Recent {html.escape(flt.label_for(filter_slug))} notifications</b>"
+            if filter_slug
+            else "<b>Recent notifications</b>"
+        )
+        lines = [f"{header} ({len(rows)} shown)\n"]
+        for i, (_id, fs, title, slug, first_seen) in enumerate(rows, 1):
+            label_prefix = ""
+            if not filter_slug and fs:
+                label_prefix = f"[{flt.label_for(fs)}] "
+            title_esc = html.escape(title)
+            entry = f"{i}. {label_prefix}<b>{title_esc}</b>\n   <i>seen {html.escape(str(first_seen))}</i>"
+            if slug:
+                entry += f"\n   {POLYMARKET_EVENT_URL}/{html.escape(slug)}"
+            lines.append(entry)
+        return "\n\n".join(lines)
+
     return f"Unknown command: <code>/{html.escape(cmd)}</code>. Try /help."
 
 
@@ -319,7 +369,7 @@ def poll_polymarket(
             continue
         msg = format_event(ev)
         if tg.send_message(msg):
-            store.add(ev.id, ev.filter_slug or "", ev.title)
+            store.add(ev.id, ev.filter_slug or "", ev.title, ev.slug or "")
             log.info("Notified: [%s] %s", ev.filter_slug, ev.title)
         else:
             log.warning("Send failed, will retry next cycle: %s", ev.title)
