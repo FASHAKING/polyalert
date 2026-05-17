@@ -21,8 +21,13 @@ sh -c 'SUDO=$(command -v sudo); if [ -n "$PREFIX" ] && command -v pkg >/dev/null
 
 **Windows PowerShell:**
 ```powershell
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) { winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements }; if (-not (Get-Command git -ErrorAction SilentlyContinue)) { winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements }; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python run.py
+$py = Get-Command python -ErrorAction SilentlyContinue; if (-not $py -or $py.Source -like "*WindowsApps*") { winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements }; if (-not (Get-Command git -ErrorAction SilentlyContinue)) { winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements }; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python run.py
 ```
+
+> If `python -m venv` prints "Python was not found; run without arguments
+> to install from the Microsoft Store", winget's PATH entry hasn't loaded
+> into the current session. Close PowerShell, open a fresh window,
+> `cd polyalert`, and re-run from `python -m venv .venv` onward.
 
 The wizard walks you through four steps:
 
