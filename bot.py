@@ -70,7 +70,7 @@ def format_status(store: SeenStore, interval: int) -> str:
                 rows.append(f"  • {f.label} (<code>{f.slug}</code>)")
         body = "\n".join(rows)
     return (
-        "<b>poltalert status</b>\n"
+        "<b>polyalert status</b>\n"
         f"Active filters:\n{body}\n\n"
         f"Poll interval: {interval}s\n"
         f"Events notified so far: {store.count()}"
@@ -92,7 +92,7 @@ def format_filters_list(store: SeenStore) -> str:
 
 
 HELP_TEXT = (
-    "<b>poltalert commands</b>\n"
+    "<b>polyalert commands</b>\n"
     "/status — current filters and stats\n"
     "/filters — list all filters by category\n"
     "/add &lt;slug&gt; — enable a filter (e.g. <code>/add nfl</code>)\n"

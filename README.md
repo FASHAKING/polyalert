@@ -1,4 +1,4 @@
-# poltalert
+# polyalert
 
 Telegram bot that notifies you when new sports markets are listed on Polymarket.
 
@@ -14,7 +14,7 @@ re-spam old listings.
 in bash, zsh, Termux, and PowerShell:
 
 ```
-git clone https://github.com/FASHAKING/poltalert.git; cd poltalert; python run.py
+git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python run.py
 ```
 
 **Termux only** — install Python + git first:
@@ -131,16 +131,16 @@ All via env vars (or `.env`):
 ## Running as a service (systemd)
 
 ```ini
-# /etc/systemd/system/poltalert.service
+# /etc/systemd/system/polyalert.service
 [Unit]
 Description=Polymarket sports market notifier
 After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/poltalert
-EnvironmentFile=/opt/poltalert/.env
-ExecStart=/opt/poltalert/.venv/bin/python bot.py
+WorkingDirectory=/opt/polyalert
+EnvironmentFile=/opt/polyalert/.env
+ExecStart=/opt/polyalert/.venv/bin/python bot.py
 Restart=on-failure
 RestartSec=10
 
@@ -150,8 +150,8 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now poltalert
-journalctl -u poltalert -f
+sudo systemctl enable --now polyalert
+journalctl -u polyalert -f
 ```
 
 ## How filtering works
