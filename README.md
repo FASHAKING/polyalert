@@ -10,33 +10,18 @@ re-spam old listings.
 
 ## One-liner quick start
 
-`run.py` is a cross-platform interactive wizard. Pick the one-liner for
-your platform — it installs every dependency (Python, git, pip packages),
-clones the repo, and launches the setup wizard.
+One self-detecting command per shell family — it figures out the OS /
+package manager, installs Python + git + pip deps, clones the repo, and
+launches the setup wizard.
 
-**Termux (Android):**
+**Termux, Linux, macOS, WSL, git-bash** (any POSIX shell):
 ```sh
-pkg update -y && pkg install -y python git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && pip install -r requirements.txt && python run.py
-```
-
-**Linux (Debian/Ubuntu):**
-```sh
-sudo apt update && sudo apt install -y python3 python3-pip python3-venv git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python run.py
-```
-
-**Linux (Fedora/RHEL):**
-```sh
-sudo dnf install -y python3 python3-pip git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python run.py
-```
-
-**Linux (Arch):**
-```sh
-sudo pacman -Sy --noconfirm python python-pip git && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && python run.py
+sh -c 'SUDO=$(command -v sudo); if [ -n "$PREFIX" ] && command -v pkg >/dev/null 2>&1; then pkg update -y && pkg install -y python git; elif command -v apt-get >/dev/null 2>&1; then $SUDO apt-get update && $SUDO apt-get install -y python3 python3-pip python3-venv git; elif command -v dnf >/dev/null 2>&1; then $SUDO dnf install -y python3 python3-pip git; elif command -v pacman >/dev/null 2>&1; then $SUDO pacman -Sy --noconfirm python python-pip git; elif command -v apk >/dev/null 2>&1; then $SUDO apk add --no-cache python3 py3-pip git; elif command -v brew >/dev/null 2>&1; then brew install python git; else echo "unsupported package manager — install python3 and git manually" >&2; exit 1; fi && git clone https://github.com/FASHAKING/polyalert.git && cd polyalert && PY=$(command -v python3 || command -v python) && $PY -m venv .venv 2>/dev/null && . .venv/bin/activate 2>/dev/null; $PY -m pip install -r requirements.txt && $PY run.py'
 ```
 
 **Windows PowerShell:**
 ```powershell
-winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements; winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python run.py
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) { winget install -e --id Python.Python.3.12 --accept-source-agreements --accept-package-agreements }; if (-not (Get-Command git -ErrorAction SilentlyContinue)) { winget install -e --id Git.Git --accept-source-agreements --accept-package-agreements }; $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User"); git clone https://github.com/FASHAKING/polyalert.git; cd polyalert; python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt; python run.py
 ```
 
 The wizard walks you through four steps:
