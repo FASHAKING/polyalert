@@ -230,7 +230,7 @@ def write_env(values: dict[str, str]) -> None:
 def wizard(existing: dict[str, str]) -> dict[str, str]:
     print()
     print("=" * 60)
-    print("  poltalert — interactive setup")
+    print("  polyalert — interactive setup")
     print("=" * 60)
     print()
     print("Step 1/4 — Telegram bot token")
@@ -310,7 +310,7 @@ def send_test_message(token: str, chat_id: str) -> bool:
         resp = telegram_api(
             token,
             "sendMessage",
-            {"chat_id": chat_id, "text": "poltalert is connected and watching for new sports markets."},
+            {"chat_id": chat_id, "text": "polyalert is connected and watching for new sports markets."},
         )
         return bool(resp.get("ok"))
     except Exception as e:
