@@ -301,26 +301,21 @@ def poll_polymarket(
     tg: TelegramClient,
     http: requests.Session,
     log: logging.Logger,
-    *,
-    silent_bootstrap: bool,
-) -> bool:
+) -> None:
     active = store.get_filters()
     if not active:
         log.info("No filters active — skipping poll. Use /add via Telegram.")
-        return False
+        return
 
     try:
         events = fetch_matching_events(active, session=http)
     except Exception as e:
         log.exception("Polymarket fetch failed: %s", e)
-        return False
+        return
 
     log.info("Fetched %d matching event(s).", len(events))
     for ev in events:
         if store.has(ev.id):
-            continue
-        if silent_bootstrap:
-            store.add(ev.id, ev.filter_slug or "", ev.title)
             continue
         msg = format_event(ev)
         if tg.send_message(msg):
@@ -328,7 +323,6 @@ def poll_polymarket(
             log.info("Notified: [%s] %s", ev.filter_slug, ev.title)
         else:
             log.warning("Send failed, will retry next cycle: %s", ev.title)
-    return silent_bootstrap
 
 
 # ---------- entry ----------
@@ -399,7 +393,6 @@ def run() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    first_run = store.count() == 0
     last_poll = 0.0
 
     while not stop["flag"]:
@@ -407,10 +400,7 @@ def run() -> None:
 
         now = time.time()
         if now - last_poll >= interval:
-            silenced = poll_polymarket(store, tg, http, log, silent_bootstrap=first_run)
-            if silenced:
-                log.info("Bootstrap complete: %d event(s) marked as seen.", store.count())
-                first_run = False
+            poll_polymarket(store, tg, http, log)
             last_poll = now
 
         slept = 0
