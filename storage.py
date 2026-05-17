@@ -1,4 +1,4 @@
-"""SQLite tracker for events already announced to Telegram."""
+"""SQLite store for seen events and runtime-mutable settings."""
 from __future__ import annotations
 
 import sqlite3
@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS seen_events (
     league TEXT NOT NULL,
     title TEXT NOT NULL,
     first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 """
 
@@ -31,6 +36,8 @@ class SeenStore:
         finally:
             conn.close()
 
+    # ---- seen events ----
+
     def has(self, event_id: str) -> bool:
         with self._conn() as c:
             cur = c.execute("SELECT 1 FROM seen_events WHERE id = ?", (event_id,))
@@ -46,3 +53,28 @@ class SeenStore:
     def count(self) -> int:
         with self._conn() as c:
             return c.execute("SELECT COUNT(*) FROM seen_events").fetchone()[0]
+
+    # ---- settings (key/value) ----
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        with self._conn() as c:
+            row = c.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+            return row[0] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+    # ---- leagues helper ----
+
+    def get_leagues(self) -> list[str]:
+        raw = self.get_setting("leagues", "") or ""
+        return [s.strip().lower() for s in raw.split(",") if s.strip()]
+
+    def set_leagues(self, leagues: list[str]) -> None:
+        clean = sorted({l.strip().lower() for l in leagues if l.strip()})
+        self.set_setting("leagues", ",".join(clean))

@@ -18,9 +18,14 @@ LEAGUE_TAG_SLUGS: dict[str, set[str]] = {
     "nfl": {"nfl"},
     "nba": {"nba"},
     "mlb": {"mlb"},
+    "nhl": {"nhl"},
     "soccer": {"soccer", "football"},
     "epl": {"epl", "premier-league"},
     "champions-league": {"champions-league", "uefa-champions-league"},
+    "mls": {"mls"},
+    "ufc": {"ufc", "mma"},
+    "tennis": {"tennis"},
+    "f1": {"f1", "formula-1", "formula-one"},
 }
 
 # Keywords used as a fallback when tags aren't present on an event.
@@ -28,10 +33,32 @@ LEAGUE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "nfl": ("nfl",),
     "nba": ("nba",),
     "mlb": ("mlb",),
+    "nhl": ("nhl",),
     "soccer": ("soccer",),
     "epl": ("premier league", "epl"),
     "champions-league": ("champions league", "ucl"),
+    "mls": ("mls",),
+    "ufc": ("ufc", "mma"),
+    "tennis": ("tennis", "atp", "wta"),
+    "f1": ("f1", "formula 1", "formula one", "grand prix"),
 }
+
+# Human-friendly labels for display.
+LEAGUE_LABELS: dict[str, str] = {
+    "nfl": "NFL",
+    "nba": "NBA",
+    "mlb": "MLB",
+    "nhl": "NHL",
+    "soccer": "Soccer",
+    "epl": "Premier League",
+    "champions-league": "Champions League",
+    "mls": "MLS",
+    "ufc": "UFC / MMA",
+    "tennis": "Tennis",
+    "f1": "Formula 1",
+}
+
+ALL_LEAGUES: list[str] = list(LEAGUE_TAG_SLUGS.keys())
 
 
 @dataclass

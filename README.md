@@ -41,6 +41,29 @@ subsequent launches reuse the saved `.env` and go straight to polling.
 A `seen.db` file is created after the first poll — keep it around so
 restarts don't re-notify. Stop with Ctrl+C.
 
+## Telegram commands
+
+Once the bot is running, message it directly to inspect and change
+filters live (no restart needed):
+
+| Command | What it does |
+| --- | --- |
+| `/status` | Show active leagues, poll interval, total notified count |
+| `/leagues` | List every supported league with on/off state |
+| `/add <slug>` | Enable a league. Multi-arg works: `/add nfl nba ufc` |
+| `/remove <slug>` | Disable a league |
+| `/help` | List the commands |
+
+Available league slugs: `nfl`, `nba`, `mlb`, `nhl`, `soccer`, `epl`,
+`champions-league`, `mls`, `ufc`, `tennis`, `f1`. Add more by editing
+`LEAGUE_TAG_SLUGS` in `polymarket.py`.
+
+When you `/add` a league, the bot silently marks its currently-listed
+events as "seen" so you only get notified about *future* listings — no
+backlog spam. Filter changes are persisted to `seen.db`, so they survive
+restarts. The bot only responds to messages from the chat ID you
+configured during setup; everyone else is ignored.
+
 ## Setup
 
 ### 1. Create a Telegram bot
