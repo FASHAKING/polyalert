@@ -76,8 +76,14 @@ restarts don't re-notify. Stop with Ctrl+C.
 | `/filters` | List every supported filter with on/off state |
 | `/add <slug>` | Enable a filter. Multi-arg works: `/add nfl bitcoin us-election` |
 | `/remove <slug>` | Disable a filter |
-| `/search <query>` | Free-text search across **all** live markets. e.g. `/search messi`, `/search Manchester United`, `/search Klopp` |
-| `/markets <filter> [query]` | List live markets **scoped to one filter**, optionally narrowed. e.g. `/markets nba`, `/markets nba chicago bulls`, `/markets soccer manunited`, `/markets nfl tom brady` |
+| `/search [filter\|category] <query>` | Free-text search across live markets, optionally scoped. Hyphens are normalized, so `/search soccer world-cup` finds World Cup markets even if Polymarket tags them as `world-cup` instead of generic soccer. |
+| `/markets <filter> [query]` | List live markets **scoped to one filter**, optionally narrowed. e.g. `/markets world-cup`, `/markets nba chicago bulls`, `/markets soccer manunited`, `/markets nfl tom brady` |
+| `/top [filter\|category]` | Show top open markets by 24h volume, optionally scoped to a filter or category. e.g. `/top`, `/top sports`, `/top world-cup` |
+| `/watch <keyword>` | Add a custom keyword alert for any new live market matching text such as `/watch world-cup` or `/watch rate cut`. |
+| `/watches` | List custom keyword alerts. |
+| `/unwatch <keyword>` | Remove a custom keyword alert. |
+| `/pause` / `/resume` | Pause or resume notification polling without stopping command handling. |
+| `/interval <seconds>` | Change the poll interval live from Telegram. Minimum 30 seconds. |
 | `/recent [filter] [day] [count]` | Show events the bot has **already notified you about** (from `seen.db`), grouped by day when spanning multiple days. Args are order-insensitive. Day can be `today`, `yesterday`, `Nd` (last N days), or `YYYY-MM-DD`. e.g. `/recent` (last 10, day-grouped), `/recent today`, `/recent nfl yesterday`, `/recent 7d 50`, `/recent nba 2026-05-15` |
 | `/help` | List the commands |
 
@@ -89,13 +95,14 @@ they autocomplete when you type `/`.
 
 | | `/search` | `/markets` |
 | --- | --- | --- |
-| Scope | All live Polymarket events | One filter's category only |
-| Filter argument | None | First arg is the filter slug |
-| Use when | "Is there *any* market about X?" | "Show me the NBA markets about X" |
-| Example | `/search bitcoin 200k` | `/markets bitcoin 200k` |
+| Scope | All live Polymarket events, or one optional filter/category scope | One filter's matching markets only |
+| Filter argument | Optional first arg when followed by a query | Required first arg |
+| Use when | "Find anything about X, maybe within sports/soccer" | "Show me markets that specifically match this filter" |
+| Example | `/search soccer world-cup` | `/markets world-cup` |
 
-`/search` ranks by 24h volume across the whole site. `/markets` is
-faster and more relevant if you already know the category.
+`/search` ranks by 24h volume and normalizes punctuation/hyphens, so
+`world-cup`, `World Cup`, and `worldcup` match the same text. `/markets`
+is faster and stricter if you already know the exact filter.
 
 ## Available filters
 
@@ -104,12 +111,15 @@ slugs it matches plus keyword fallbacks for when tags are missing.
 
 | Category | Filter slugs |
 | --- | --- |
-| Sports | `nfl`, `nba`, `mlb`, `nhl`, `soccer`, `epl`, `champions-league`, `mls`, `ufc`, `tennis`, `f1` |
+| Sports | `nfl`, `nba`, `mlb`, `nhl`, `soccer`, `world-cup`, `epl`, `champions-league`, `mls`, `ufc`, `tennis`, `f1` |
 | Crypto | `bitcoin`, `ethereum` |
+| Weather | `weather` |
+| Economics | `fed-rates` |
+| Technology | `ai` |
 | Politics | `us-election` |
 | Entertainment | `oscars` |
 
-Non-sports filters ship turned off; enable any with `/add <slug>`.
+Non-default filters ship turned off; enable any with `/add <slug>`. `world-cup` is included in the default sports watch list so World Cup markets are easier to discover.
 
 ## How it works
 
@@ -143,10 +153,11 @@ The main loop runs a 2-second tick:
    are grouped by category and the bot makes one Gamma API call per
    category, scoped to that category's parent tag (e.g.
    `tag_slug=sports`). This avoids pulling the firehose.
-3. **Match each fetched event** against the category's active filters.
+3. **Match each fetched event** against the category's active filters and any custom keyword watches.
    An event matches a filter if either:
    1. its Polymarket tags include one of the filter's tag slugs, or
    2. its title contains one of the filter's keyword fallbacks.
+   Keyword watches normalize punctuation and hyphens, so `world-cup`, `World Cup`, and `worldcup` can match the same market text.
 4. **Skip events already in `seen_events`**. For genuinely new events,
    send a Telegram message and record the event ID. The first time
    the bot ever runs (empty DB), it silently marks the existing
@@ -155,9 +166,12 @@ The main loop runs a 2-second tick:
    logic for that filter, so enabling NBA mid-week doesn't send 50
    messages for games that listed yesterday.
 
-`/search` and `/markets` query the Gamma API on demand — they don't
-touch `seen.db`. Both order results by 24h volume so liquid markets
-surface first.
+`/search`, `/markets`, and `/top` query the Gamma API on demand — they don't
+touch `seen.db`. Results order by 24h volume so liquid markets surface
+first. `/search` accepts an optional filter/category scope, so
+`/search soccer world-cup` searches sports/soccer-adjacent markets for
+World Cup text without requiring Polymarket to tag the event as generic
+`soccer`.
 
 ## Configuration
 
@@ -167,7 +181,7 @@ All via env vars or `.env`:
 | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | *(required)* | From `@BotFather` |
 | `TELEGRAM_CHAT_ID` | *(required)* | Integer; auto-detected by the wizard |
-| `FILTERS` | `nfl,nba,mlb,soccer,epl,champions-league` | Comma-separated. Only seeded on first run — afterwards filters live in `seen.db` and are mutated by `/add` / `/remove`. `LEAGUES` accepted as a legacy alias |
+| `FILTERS` | `nfl,nba,mlb,soccer,world-cup,epl,champions-league` | Comma-separated. Only seeded on first run — afterwards filters live in `seen.db` and are mutated by `/add` / `/remove`. `LEAGUES` accepted as a legacy alias |
 | `POLL_INTERVAL_SECONDS` | `300` | 5 min |
 | `DB_PATH` | `seen.db` | SQLite file path |
 | `LOG_LEVEL` | `INFO` | `DEBUG` for verbose |
@@ -193,6 +207,15 @@ To get the values manually:
 2. Start a chat with your new bot and send it any message.
 3. Open `https://api.telegram.org/bot<TOKEN>/getUpdates` in a browser,
    find `chat.id` in the JSON.
+
+## Testing
+
+The repo uses the Python standard-library `unittest` runner, so no extra
+test dependency is required:
+
+```bash
+python -m unittest discover -s tests
+```
 
 ## Running as a service (systemd)
 
@@ -251,7 +274,7 @@ and `/markets` all read from the registry.
 | `bot.py` | Main loop: command dispatch + Polymarket polling |
 | `polymarket.py` | Gamma API client: fetch / match / search / list |
 | `filters.py` | Filter and category registry |
-| `storage.py` | SQLite store (seen events + settings) |
+| `storage.py` | SQLite store (seen events, settings, keyword watches) |
 | `telegram_client.py` | Minimal Telegram Bot API wrapper |
 | `run.py` | Cross-platform interactive setup wizard |
 | `requirements.txt` | `requests`, `python-dotenv` |
@@ -261,9 +284,9 @@ and `/markets` all read from the registry.
 ## What it deliberately doesn't do
 
 - **No trading.** It never places a bet — it only notifies and queries.
-- **No price/volume alerts.** Only *new listings* trigger notifications.
-   `/search` and `/markets` will show volume, but the bot won't ping
-   you when volume changes.
+- **No price/volume alerts.** Only *new listings* and custom keyword-watch
+   matches trigger notifications. `/search`, `/markets`, and `/top` show
+   volume, but the bot won't ping you when volume changes.
 - **No historical search.** Only active, currently-open markets are
    considered.
 - **No webhook server.** Uses Telegram long-polling, so no public IP

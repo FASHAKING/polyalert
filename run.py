@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parent
 ENV_FILE = ROOT / ".env"
 REQUIREMENTS = ROOT / "requirements.txt"
 
-DEFAULT_FILTERS = ["nfl", "nba", "mlb", "soccer", "epl", "champions-league"]
+DEFAULT_FILTERS = ["nfl", "nba", "mlb", "soccer", "world-cup", "epl", "champions-league"]
 
 
 # ---------- environment detection ----------
