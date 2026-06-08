@@ -40,6 +40,9 @@ CATEGORIES: dict[str, Category] = {
     "crypto": Category("crypto", "Crypto", "crypto", "💰"),
     "politics": Category("politics", "Politics", "politics", "🗳"),
     "entertainment": Category("entertainment", "Entertainment", "entertainment", "🎬"),
+    "weather": Category("weather", "Weather", "weather", "🌦"),
+    "economics": Category("economics", "Economics", None, "📈"),
+    "technology": Category("technology", "Technology", None, "🤖"),
 }
 
 
@@ -53,7 +56,13 @@ REGISTRY: dict[str, Filter] = {
     "nba": _f("nba", "sports", "NBA", {"nba"}, ("nba",), "🏀"),
     "mlb": _f("mlb", "sports", "MLB", {"mlb"}, ("mlb",), "⚾"),
     "nhl": _f("nhl", "sports", "NHL", {"nhl"}, ("nhl",), "🏒"),
-    "soccer": _f("soccer", "sports", "Soccer", {"soccer", "football"}, ("soccer",), "⚽"),
+    "soccer": _f("soccer", "sports", "Soccer", {"soccer", "football"}, ("soccer", "football"), "⚽"),
+    "world-cup": _f(
+        "world-cup", "sports", "FIFA World Cup",
+        {"world-cup", "fifa-world-cup", "world-cup-2026", "fifa-world-cup-2026"},
+        ("world cup", "fifa world cup", "2026 world cup"),
+        "🏆",
+    ),
     "epl": _f("epl", "sports", "Premier League", {"epl", "premier-league"}, ("premier league",), "⚽"),
     "champions-league": _f(
         "champions-league", "sports", "Champions League",
@@ -65,10 +74,20 @@ REGISTRY: dict[str, Filter] = {
     "ufc": _f("ufc", "sports", "UFC / MMA", {"ufc", "mma"}, ("ufc", "mma"), "🥊"),
     "tennis": _f("tennis", "sports", "Tennis", {"tennis"}, ("tennis",), "🎾"),
     "f1": _f("f1", "sports", "Formula 1", {"f1", "formula-1", "formula-one"}, ("formula 1", "grand prix"), "🏎"),
+    "weather": _f("weather", "weather", "Weather", {"weather"}, ("weather", "temperature", "hurricane", "storm"), "🌦"),
 
     # ---- Crypto (examples; off by default) ----
     "bitcoin": _f("bitcoin", "crypto", "Bitcoin", {"bitcoin", "btc"}, ("bitcoin",), "₿"),
     "ethereum": _f("ethereum", "crypto", "Ethereum", {"ethereum", "eth"}, ("ethereum",), "Ξ"),
+
+    # ---- Economics / technology / weather (examples; off by default) ----
+    "fed-rates": _f(
+        "fed-rates", "economics", "Federal Reserve / Rates",
+        {"fed", "federal-reserve", "interest-rates", "fed-rates"},
+        ("fed", "federal reserve", "interest rate", "rate cut", "rate hike"),
+        "🏦",
+    ),
+    "ai": _f("ai", "technology", "AI", {"ai", "artificial-intelligence"}, ("ai", "artificial intelligence", "openai", "nvidia"), "🤖"),
 
     # ---- Politics (examples; off by default) ----
     "us-election": _f(

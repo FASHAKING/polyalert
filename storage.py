@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS keyword_watches (
+    keyword TEXT PRIMARY KEY,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -110,6 +115,47 @@ class SeenStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    # ---- runtime settings ----
+
+    def is_paused(self) -> bool:
+        return (self.get_setting("paused", "0") or "0") == "1"
+
+    def set_paused(self, paused: bool) -> None:
+        self.set_setting("paused", "1" if paused else "0")
+
+    def get_poll_interval(self, default: int = 300) -> int:
+        raw = self.get_setting("poll_interval_seconds")
+        if raw is None:
+            return default
+        try:
+            return max(30, int(raw))
+        except ValueError:
+            return default
+
+    def set_poll_interval(self, seconds: int) -> None:
+        self.set_setting("poll_interval_seconds", str(max(30, int(seconds))))
+
+    # ---- keyword watches ----
+
+    def get_keyword_watches(self) -> list[str]:
+        with self._conn() as c:
+            rows = c.execute("SELECT keyword FROM keyword_watches ORDER BY keyword").fetchall()
+        return [row[0] for row in rows]
+
+    def add_keyword_watch(self, keyword: str) -> bool:
+        clean = " ".join(keyword.strip().lower().split())
+        if not clean:
+            return False
+        with self._conn() as c:
+            cur = c.execute("INSERT OR IGNORE INTO keyword_watches (keyword) VALUES (?)", (clean,))
+            return cur.rowcount > 0
+
+    def remove_keyword_watch(self, keyword: str) -> bool:
+        clean = " ".join(keyword.strip().lower().split())
+        with self._conn() as c:
+            cur = c.execute("DELETE FROM keyword_watches WHERE keyword = ?", (clean,))
+            return cur.rowcount > 0
 
     # ---- filters helper ----
 

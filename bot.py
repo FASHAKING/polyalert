@@ -18,6 +18,7 @@ from polymarket import (
     fetch_matching_events,
     list_filter_events,
     search_events,
+    top_events,
 )
 from storage import SeenStore
 from telegram_client import TelegramClient
@@ -28,8 +29,15 @@ COMMANDS = [
     ("filters", "List all available filters by category"),
     ("add", "Enable a filter: /add nfl"),
     ("remove", "Disable a filter: /remove nfl"),
-    ("search", "Search all markets: /search messi"),
+    ("search", "Search markets: /search [scope] query"),
     ("markets", "List markets in a filter: /markets nba chicago bulls"),
+    ("top", "Top live markets by volume: /top [filter]"),
+    ("watch", "Add keyword alert: /watch world-cup"),
+    ("watches", "List keyword alerts"),
+    ("unwatch", "Remove keyword alert: /unwatch world-cup"),
+    ("pause", "Pause new-market notifications"),
+    ("resume", "Resume new-market notifications"),
+    ("interval", "Set poll interval: /interval 600"),
     ("recent", "Show notified events, grouped by day: /recent [filter] [day] [count]"),
     ("help", "Show available commands"),
 ]
@@ -47,12 +55,19 @@ def _title_link(title: str, slug: str) -> str:
 
 
 def _emoji_label(slug: str | None) -> str:
-    """Return e.g. '🏈 NFL' for known slugs, '' for unknown/missing."""
+    """Return e.g. '🏈 NFL' for known slugs or a keyword-watch label."""
     if not slug:
         return ""
+    if slug.startswith("watch:"):
+        return f"🔎 Watch: {slug.split(':', 1)[1]}"
     em = flt.emoji_for(slug)
     label = flt.label_for(slug)
     return f"{em} {label}".strip()
+
+
+def _poll_interval(store: SeenStore, fallback: int) -> int:
+    return store.get_poll_interval(fallback)
+
 
 TICK_SECONDS = 2
 
@@ -60,18 +75,17 @@ TICK_SECONDS = 2
 # ---------- formatting helpers ----------
 
 def format_event(ev: MarketEvent) -> str:
-    em = flt.emoji_for(ev.filter_slug) or "🆕"
-    label = flt.label_for(ev.filter_slug) if ev.filter_slug else "Polymarket"
-    lines = [f"🆕 {em} <b>{html.escape(label)}</b>", _title_link(ev.title, ev.slug)]
+    label = _emoji_label(ev.filter_slug) or "🆕 Polymarket"
+    lines = [f"🆕 <b>{html.escape(label)}</b>", _title_link(ev.title, ev.slug)]
     if ev.end_date:
         lines.append(f"🕒 Ends {html.escape(ev.end_date)}")
+    if ev.volume:
+        lines.append(f"📊 24h volume ${ev.volume:,.0f}")
     return "\n".join(lines)
 
 
 def format_search_hit(i: int, ev: MarketEvent) -> str:
-    em = flt.emoji_for(ev.filter_slug)
-    label = flt.label_for(ev.filter_slug) if ev.filter_slug else ""
-    prefix = f"{em} " if em else ""
+    label = _emoji_label(ev.filter_slug)
     bracket = f"[{html.escape(label)}] " if label else ""
     extras = []
     if ev.end_date:
@@ -79,11 +93,12 @@ def format_search_hit(i: int, ev: MarketEvent) -> str:
     if ev.volume:
         extras.append(f"vol ${ev.volume:,.0f}")
     suffix = f"\n   <i>{' · '.join(extras)}</i>" if extras else ""
-    return f"{i}. {prefix}{bracket}{_title_link(ev.title, ev.slug)}{suffix}"
+    return f"{i}. {bracket}{_title_link(ev.title, ev.slug)}{suffix}"
 
 
 def format_status(store: SeenStore, interval: int) -> str:
     active = store.get_filters()
+    watches = store.get_keyword_watches()
     if not active:
         body = "  <i>(none — bot will not notify until you /add one)</i>"
     else:
@@ -97,9 +112,13 @@ def format_status(store: SeenStore, interval: int) -> str:
                 em = f.emoji or (cat.emoji if cat else "")
                 rows.append(f"  {em} {f.label} (<code>{f.slug}</code>)")
         body = "\n".join(rows)
+    watch_body = "  <i>(none)</i>" if not watches else "\n".join(f"  🔎 <code>{html.escape(w)}</code>" for w in watches)
+    state = "⏸ Paused" if store.is_paused() else "▶️ Running"
     return (
         "📡 <b>polyalert status</b>\n\n"
+        f"State: {state}\n"
         f"<b>Active filters</b>\n{body}\n\n"
+        f"<b>Keyword watches</b>\n{watch_body}\n\n"
         f"⏱ Poll interval: {interval}s\n"
         f"🔔 Events notified so far: {store.count()}"
     )
@@ -128,9 +147,15 @@ HELP_TEXT = (
     "/filters — list all filters by category\n"
     "/add &lt;slug&gt; — enable a filter (e.g. <code>/add nfl</code>)\n"
     "/remove &lt;slug&gt; — disable a filter\n"
-    "/search &lt;query&gt; — search live markets across all categories (e.g. <code>/search messi</code>)\n"
+    "/search [filter|category] &lt;query&gt; — search live markets; hyphens are normalized "
+    "(e.g. <code>/search soccer world-cup</code>, <code>/search world-cup</code>)\n"
     "/markets &lt;filter&gt; [query] — list live markets in a filter "
-    "(e.g. <code>/markets nba chicago bulls</code>)\n"
+    "(e.g. <code>/markets world-cup</code>, <code>/markets nba chicago bulls</code>)\n"
+    "/top [filter|category] — top live markets by 24h volume\n"
+    "/watch &lt;keyword&gt; — alert on any new market matching custom text (e.g. <code>/watch world-cup</code>)\n"
+    "/unwatch &lt;keyword&gt; — remove a custom keyword watch\n"
+    "/pause and /resume — pause/resume notification polling without losing commands\n"
+    "/interval &lt;seconds&gt; — change poll interval live (minimum 30)\n"
     "/recent [filter] [day] [count] — events the bot has already notified, grouped by day. "
     "Day can be <code>today</code>, <code>yesterday</code>, <code>Nd</code> (last N days), or <code>YYYY-MM-DD</code>. "
     "Examples: <code>/recent</code>, <code>/recent today</code>, <code>/recent nfl 7d</code>\n"
@@ -252,11 +277,11 @@ def _handle_recent(args: list[str], store: SeenStore) -> str:
     header = f"🔔 <b>Recent notifications</b>{scope} ({len(rows)} shown)"
 
     def _row_prefix(fs: str | None) -> str:
-        em = flt.emoji_for(fs)
+        label = _emoji_label(fs)
         if filter_slug:
-            return f"{em} " if em else ""
+            return f"{html.escape(label)} " if label else ""
         if fs:
-            return f"{em} [{html.escape(flt.label_for(fs))}] " if em else f"[{html.escape(flt.label_for(fs))}] "
+            return f"[{html.escape(label or flt.label_for(fs))}] "
         return ""
 
     # When the query is scoped to a single day, render flat. Otherwise group.
@@ -315,6 +340,41 @@ def handle_command(
 
     if cmd in ("filters", "leagues"):  # /leagues kept as alias
         return format_filters_list(store)
+
+    if cmd == "pause":
+        store.set_paused(True)
+        return "⏸ New-market notifications paused. Commands still work; use /resume to restart polling."
+
+    if cmd == "resume":
+        store.set_paused(False)
+        return "▶️ New-market notifications resumed."
+
+    if cmd == "interval":
+        if not args or not args[0].isdigit():
+            return "Usage: <code>/interval &lt;seconds&gt;</code> (minimum 30)."
+        seconds = max(30, int(args[0]))
+        store.set_poll_interval(seconds)
+        return f"⏱ Poll interval set to {seconds}s."
+
+    if cmd in ("watch", "watches"):
+        if cmd == "watches" or not args:
+            watches = store.get_keyword_watches()
+            if not watches:
+                return "No keyword watches yet. Add one with <code>/watch world-cup</code>."
+            return "<b>Keyword watches</b>\n" + "\n".join(f"  🔎 <code>{html.escape(w)}</code>" for w in watches)
+        keyword = " ".join(args).strip()
+        added = store.add_keyword_watch(keyword)
+        status = "Added" if added else "Already watching"
+        return f"🔎 {status}: <code>{html.escape(keyword.lower())}</code>"
+
+    if cmd == "unwatch":
+        if not args:
+            return "Usage: <code>/unwatch &lt;keyword&gt;</code>."
+        keyword = " ".join(args).strip()
+        removed = store.remove_keyword_watch(keyword)
+        if removed:
+            return f"Removed keyword watch: <code>{html.escape(keyword.lower())}</code>"
+        return f"Was not watching: <code>{html.escape(keyword.lower())}</code>"
 
     if cmd == "add":
         if not args:
@@ -378,23 +438,33 @@ def handle_command(
         return "\n".join(parts)
 
     if cmd == "search":
-        # Use raw_text so multi-word queries like "Manchester United" work.
+        # Supports both plain searches and scoped searches such as
+        # /search soccer world-cup. The first arg is treated as an optional
+        # filter/category scope only when a second arg exists.
         query = raw_text.split(None, 1)[1].strip() if " " in raw_text else ""
         if not query:
             return (
-                "Usage: <code>/search &lt;query&gt;</code>\n"
+                "Usage: <code>/search [filter|category] &lt;query&gt;</code>\n"
                 "Examples:\n"
-                "  <code>/search messi</code>\n"
-                "  <code>/search Manchester United</code>\n"
-                "  <code>/search Klopp</code>"
+                "  <code>/search world-cup</code>\n"
+                "  <code>/search soccer world-cup</code>\n"
+                "  <code>/search Manchester United</code>"
             )
-        hits = search_events(query, session=http)
+        scope = None
+        search_query = query
+        if len(args) >= 2 and args[0].lower().lstrip("/") in {**flt.REGISTRY, **flt.CATEGORIES}:
+            scope = args[0].lower().lstrip("/")
+            search_query = " ".join(args[1:]).strip()
+        hits, err = search_events(search_query, scope=scope, session=http)
+        if err:
+            return f"⚠️ {html.escape(err)}"
+        scope_label = f" in <b>{html.escape(flt.label_for(scope) if scope in flt.REGISTRY else flt.category_label(scope))}</b>" if scope else ""
         if not hits:
-            return f"💤 No live markets found matching <i>{html.escape(query)}</i>."
+            return f"💤 No live markets found{scope_label} matching <i>{html.escape(search_query)}</i>."
         rows = [format_search_hit(i, ev) for i, ev in enumerate(hits, 1)]
         return (
-            f"🔍 <b>Search results for <i>{html.escape(query)}</i></b> ({len(hits)} match"
-            f"{'es' if len(hits) != 1 else ''})\n\n"
+            f"🔍 <b>Search results{scope_label} for <i>{html.escape(search_query)}</i></b> "
+            f"({len(hits)} match{'es' if len(hits) != 1 else ''})\n\n"
             + "\n\n".join(rows)
         )
 
@@ -427,6 +497,19 @@ def handle_command(
             f"({len(hits)} result{'s' if len(hits) != 1 else ''})\n\n"
             + "\n\n".join(rows)
         ).lstrip()
+
+    if cmd == "top":
+        scope = args[0].lower().lstrip("/") if args else None
+        hits, err = top_events(scope=scope, session=http)
+        if err:
+            return f"⚠️ {html.escape(err)}"
+        scope_label = ""
+        if scope:
+            scope_label = f" — {html.escape(flt.label_for(scope) if scope in flt.REGISTRY else flt.category_label(scope))}"
+        if not hits:
+            return f"💤 No live top markets found{scope_label}."
+        rows = [format_search_hit(i, ev) for i, ev in enumerate(hits, 1)]
+        return f"📊 <b>Top live markets by 24h volume{scope_label}</b>\n\n" + "\n\n".join(rows)
 
     if cmd == "recent":
         return _handle_recent(args, store)
@@ -494,13 +577,18 @@ def poll_polymarket(
     http: requests.Session,
     log: logging.Logger,
 ) -> None:
+    if store.is_paused():
+        log.info("Notifications paused — skipping poll. Use /resume via Telegram.")
+        return
+
     active = store.get_filters()
-    if not active:
-        log.info("No filters active — skipping poll. Use /add via Telegram.")
+    watches = store.get_keyword_watches()
+    if not active and not watches:
+        log.info("No filters or keyword watches active — skipping poll. Use /add or /watch via Telegram.")
         return
 
     try:
-        events = fetch_matching_events(active, session=http)
+        events = fetch_matching_events(active, keyword_watches=watches, session=http)
     except Exception as e:
         log.exception("Polymarket fetch failed: %s", e)
         return
@@ -556,7 +644,7 @@ def run() -> None:
             s.strip().lower()
             for s in os.environ.get(
                 "FILTERS",
-                os.environ.get("LEAGUES", "nfl,nba,mlb,soccer,epl,champions-league"),
+                os.environ.get("LEAGUES", "nfl,nba,mlb,soccer,world-cup,epl,champions-league"),
             ).split(",")
             if s.strip()
         ]
@@ -588,10 +676,11 @@ def run() -> None:
     last_poll = 0.0
 
     while not stop["flag"]:
-        drain_updates(tg, store, authorized_chat_id, http, interval, log)
+        current_interval = _poll_interval(store, interval)
+        drain_updates(tg, store, authorized_chat_id, http, current_interval, log)
 
         now = time.time()
-        if now - last_poll >= interval:
+        if now - last_poll >= current_interval:
             poll_polymarket(store, tg, http, log)
             last_poll = now
 
